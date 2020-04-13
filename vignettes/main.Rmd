@@ -1,0 +1,39 @@
+---
+title: "Stepped wedge lagged effect simulation"
+author: "Avi Kenny"
+date: "April 14, 2020"
+output: rmarkdown::html_vignette
+# output: word_document
+vignette: >
+  %\VignetteIndexEntry{main}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+editor_options:
+  chunk_output_type: console
+---
+
+
+
+# SETUP: Load packages
+```{r}
+
+# devtools::install_github("Avi-Kenny/simba")
+
+libloc <- c(
+  .libPaths(),                              # Default
+  '/home/students/avikenny/Desktop/R_lib',  # UW - Bayes
+  '/home/akenny/R_lib'                      # Hutch - Gizmo
+)
+
+library(z.stepped.wedge) # !!!!! Figure out cluster workflow
+library(dplyr, lib.loc=libloc)
+library(magrittr, lib.loc=libloc)
+library(ggplot2, lib.loc=libloc)
+library(nlme, lib.loc=libloc)
+library(geepack, lib.loc=libloc)
+library(stringr, lib.loc=libloc)
+# library(simba, lib.loc=libloc)
+library(parallel, lib.loc=libloc)
+library(numDeriv, lib.loc=libloc)
+
+```
