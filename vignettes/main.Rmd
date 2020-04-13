@@ -37,3 +37,206 @@ library(parallel, lib.loc=libloc)
 library(numDeriv, lib.loc=libloc)
 
 ```
+
+
+
+# Set code blocks to run
+```{r}
+
+run_main <- TRUE
+run_misc <- TRUE
+
+```
+
+
+
+# MAIN: Simulation 1: No effect lag present
+```{r}
+if ( run_main ) {
+  
+  # d=0, so that theta_1 = ... = theta_{J−1} = theta
+  # I \in {12, 24, 48}
+  # J \in {5, 7, 9}
+  # K \in {20, 50, 100}
+  # tau^2 \in {0, 0.01, 0.04, 0.09, 0.16, 0.25}
+  # theta := log(RR) = log(0.5)
+  # alpha := log baseline prevalence = log(0.1)
+  # N := # of simulations = 1,000
+  # Output bias and precision for intervention effect estimate
+  # Output bias of estimate of lag duration
+  
+  # Make cluster
+  n_cores <- detectCores()
+  cl <- makeCluster(n_cores)
+  
+  # Export functions/variables to cluster
+  clusterExport(cl, c("generate_dataset", "%<>%", "run_analysis", "geeglm", 
+                      "hessian", "str_sub"))
+  
+  # Repeate simulation 1000 times
+  results_lists <- parLapply(cl,1:10,function(x){
+  # results_lists <- parLapply(cl,1:1000,function(x){
+    
+    # Generate normal data
+    data <- generate_dataset(
+      alpha = log(0.1),
+      tau = 0,
+      theta = log(0.5),
+      d = 0.5,
+      n_clusters = 48,
+      n_time_points = 9,
+      n_ind_per_cluster = 10,
+      type = "normal",
+      sigma = 0.1
+    )
+    
+    # Run analysis
+    return (
+      run_analysis(data)
+    )
+    
+  })
+  
+  results <- data.frame(
+    matrix(
+      unlist(results_lists),
+      nrow = length(results_lists),
+      byrow = TRUE
+    )
+  )
+  names(results) <- names(results_lists[[1]])
+  
+  results %<>% mutate(
+    ci_d_lo = d_hat - 1.96*se_d_hat,
+    ci_d_hi = d_hat + 1.96*se_d_hat,
+    ci_theta_lo = theta_hat - 1.96*se_theta_hat,
+    ci_theta_hi = theta_hat + 1.96*se_theta_hat,
+    ci_theta2_lo = theta_hat - 1.96*se_theta_hat2,
+    ci_theta2_hi = theta_hat + 1.96*se_theta_hat2
+  )
+  results %<>% mutate(
+    cov_d = ifelse(ci_d_lo<=0.5 & 0.5<=ci_d_hi, 1, 0),
+    cov_theta = ifelse(ci_theta_lo<=log(0.5) & log(0.5)<=ci_theta_hi, 1, 0),
+    cov_theta2 = ifelse(ci_theta2_lo<=log(0.5) & log(0.5)<=ci_theta2_hi, 1, 0)
+  )
+  
+  # Print results
+  print(paste("Empirical SE of theta_hat:", signif(sd(results$theta_hat),3)))
+  print(paste("Empirical SE of d_hat:", signif(sd(results$d_hat),3)))
+  print(paste("Avg se_d_hat:", signif(mean(results$se_d_hat),3)))
+  print(paste("Avg se_theta_hat:", signif(mean(results$se_theta_hat),3)))
+  print(paste("Avg se_theta_hat2:", signif(mean(results$se_theta_hat2),3)))
+  print(paste("Coverage of d:", signif(mean(results$cov_d),3)))
+  print(paste("Coverage of theta:", signif(mean(results$cov_theta),3)))
+  print(paste("Coverage of theta2:", signif(mean(results$cov_theta2),3)))
+  
+  # Plots
+  # plot_sw_design(data_1)
+  # plot_outcome(data_1, type="no error")
+  # plot_outcome(data_1, type="realized")
+  
+}
+```
+
+
+
+# MAIN: Simulation 2: Effect lag exists but is not accounted for
+```{r}
+if ( run_main ) {
+  
+  # d \in {0.5, 1.4}
+  # I, J, K, tau^2, theta, alpha, N as above
+  # Same outputs as above
+  
+  # Check: The short and long lags should result in log RRs of log(0.55) and log(0.70) at the first time step
+  
+  # !!!!!
+  
+}
+```
+
+
+
+# MAIN: Simulation 3: Effect lag exists and is accounted for
+```{r}
+if ( run_main ) {
+  
+  # d \in {0.5, 1.4}
+  # I, J, K, tau^2, theta, alpha, N as above
+  # Same outputs as above
+  
+  # Check: The short and long lags should result in log RRs of log(0.55) and log(0.70) at the first time step
+  
+  # !!!!!
+  
+}
+```
+
+
+
+# MISC: Check MLE calculation
+```{r}
+if ( run_misc ) {
+  
+  J <- 5
+  theta_hat_l <- matrix(1:J,ncol=1)
+  mu_d <- matrix(0.3*c(3:(J+2)),ncol=1)
+  A <- matrix(runif(J^2)*2-1, ncol=J)
+  sigma_inv <- t(A) %*% A
+  
+  neg_log_lik <- function(theta) {
+    return(
+      (1/2) * t(theta_hat_l-(theta*mu_d)) %*%
+        sigma_inv %*%
+        (theta_hat_l-(theta*mu_d))
+    )
+  }
+  
+  optim(
+    par = 6,
+    fn = function(x) {
+      return ( neg_log_lik(x) )
+    },
+    method = "BFGS"
+  )
+  
+  mle_ank <- (
+    (t(theta_hat_l) %*% sigma_inv %*% mu_d) +
+      t((t(theta_hat_l) %*% sigma_inv %*% mu_d))) /
+      (2* t(mu_d) %*% sigma_inv %*% mu_d)
+  mle_tsg <- (t(theta_hat_l) %*% sigma_inv %*% mu_d) /
+             (t(mu_d) %*% sigma_inv %*% mu_d)
+  
+  print(mle_ank)
+  print(mle_tsg)
+  
+}
+```
+
+
+
+# MISC: Linear spline alternative
+```{r}
+if ( run_misc ) {
+  
+  ggplot(data.frame(x=c(0,8)), aes(x=x)) +
+    stat_function(fun = function(x) {
+      return(ifelse(x>=1,1,0))
+    }, aes(color="Step function")) +
+    stat_function(fun = function(x) {
+      d = 1
+      I = ifelse(x>=1, 1, 0)
+      return(I * (1-exp(-(x-1)/d)))
+    }, aes(color="Current function")) +
+    stat_function(fun = function(x) {
+      i1 = ifelse(x>=1 & x<2, 1, 0)
+      i2 = ifelse(x>=2 & x<5, 1, 0)
+      i3 = ifelse(x>=5, 1, 0)
+      return( i1*(0.75*x-0.75) + i2*((0.25/3)*x + 1-5*(0.25/3)) + i3 )
+    }, aes(color="Linear spline")) +
+    geom_point(aes(x=5, y=1), colour="green") +
+    geom_point(aes(x=2, y=0.75), colour="purple") +
+    labs(color="Type", y="% of treatment effect achieved")
+    
+}
+```
