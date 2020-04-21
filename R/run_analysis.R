@@ -1,92 +1,55 @@
 #' Run the data analysis
 #'
-#' @param x TO DO
+#' @param data A dataset returned by generate_dataset()
 #' @return TO DO
 #' @export
 # FN: generate_dataset
 run_analysis <- function(data) {
 
-  # # !!!!! testing
-  # data <- generate_dataset(
-  #   alpha = log(0.1),
-  #   tau = 0,
-  #   theta = log(0.5),
-  #   d = 0.5,
-  #   n_clusters = 48,
-  #   n_time_points = 9,
-  #   n_ind_per_cluster = 10,
-  #   type = "normal",
-  #   # type = "binomial",
-  #   sigma = 0.1
-  # )
-  # plot_sw_design(data)
-  # plot_outcome(data, type="no error")
-  # plot_outcome(data, type="realized")
-  # print(data$beta_js)
-  # print(data$theta_ls)
-
-  # Step 1: Estimate the time-on-intervention fixed effects
-  # !!!!!
-  # model_lmm <- lme(
-  #   fixed = y ~ factor(j) + factor(x_ij), # !!!!! Force beta_1=0
-  #   random = ~1|i,
-  #   data = data$data,
-  #   # data = data,
-  #   method = "ML"
-  # )
-  # summary(model_lmm)
-
-  # model_binomial_gee1 <- geeglm(
-  #   y ~ factor(j) + factor(x_ij),
-  #   data = data$data,
-  #   id = i,
-  #   family = binomial(link = "log"),
-  #   corstr = "exchangeable"
-  # )
-  # summary(model_binomial_gee1)
-  # system.time(
-  #   model_binomial_gee2 <- geeglm(
-  #     y ~ factor(j) + factor(l),
-  #     data = data$data,
-  #     id = i,
-  #     family = binomial(link = "log"),
-  #     corstr = "exchangeable"
-  #   )
-  # )
-  # summary(model_gee2)
-  # model_normal_gee1 <- geeglm(
-  #   y ~ factor(j) + factor(x_ij),
+  # # Step 1: Estimate the time-on-intervention fixed effects
+  # model_normal_gee2 <- geeglm(
+  #   y ~ factor(j) + factor(l),
   #   data = data$data,
   #   id = i,
   #   family = "gaussian",
-  #   corstr = "exchangeable"
+  #   corstr = "independence"
+  #   # corstr = "exchangeable"
   # )
-  # summary(model_normal_gee1)
-  model_normal_gee2 <- geeglm(
-    y ~ factor(j) + factor(l),
-    data = data$data,
-    id = i,
-    family = "gaussian",
-    corstr = "independence"
-    # corstr = "exchangeable"
-  )
-  # summary(model_normal_gee2)
-  # print(model_normal_gee2$coefficients)
+  #
+  # # Extract estimates and covariance matrix
+  # coeff_names <- names(model_normal_gee2$coefficients)
+  # theta_l_hat <- as.numeric(model_normal_gee2$coefficients)
+  # sigma_l_hat <- model_normal_gee2$geese$vbeta
+  # indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
+  # coeff_names <- coeff_names[indices]
+  # theta_l_hat <- theta_l_hat[indices]
+  # sigma_l_hat <- sigma_l_hat[indices,indices]
 
   # Step 2: Use nonlinear GLS to estimate long-term effect and lag duration
 
-  # Extract estimates and covariance matrix
-  # !!!!! Note: this is for the normal model
-  coeff_names <- names(model_normal_gee2$coefficients)
-  theta_l_hat <- as.numeric(model_normal_gee2$coefficients)
-  sigma_l_hat <- model_normal_gee2$geese$vbeta
+
+
+
+  # # !!!!! Testing: start
+
+  model_normal_lm2 <- lm(
+    y ~ factor(j) + factor(l),
+    data = data$data
+  )
+
+  coeff_names <- names(model_normal_lm2$coefficients)
+  theta_l_hat <- as.numeric(model_normal_lm2$coefficients)
+  sigma_l_hat <- vcov(model_normal_lm2)
   indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
   coeff_names <- coeff_names[indices]
   theta_l_hat <- theta_l_hat[indices]
   sigma_l_hat <- sigma_l_hat[indices,indices]
 
+  # # !!!!! Testing: end
+
+
+
   # Use numerical ML to estimate mu_hat
-  # !!!!! Move this elsewhere
   neg_log_lik <- function(theta, d, J, theta_l_hat, sigma_l_hat) {
 
     l_times <- 1:(J-1)

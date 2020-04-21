@@ -1,9 +1,8 @@
 ---
 title: "Stepped wedge lagged effect simulation"
 author: "Avi Kenny"
-date: "April 14, 2020"
-output: rmarkdown::html_vignette
-# output: word_document
+date: "April 19, 2020"
+output: rmarkdown::word_document
 vignette: >
   %\VignetteIndexEntry{main}
   %\VignetteEngine{knitr::rmarkdown}
@@ -19,22 +18,16 @@ editor_options:
 
 # devtools::install_github("Avi-Kenny/simba")
 
-libloc <- c(
-  .libPaths(),                              # Default
-  '/home/students/avikenny/Desktop/R_lib',  # UW - Bayes
-  '/home/akenny/R_lib'                      # Hutch - Gizmo
-)
-
-library(z.stepped.wedge) # !!!!! Figure out cluster workflow
-library(dplyr, lib.loc=libloc)
-library(magrittr, lib.loc=libloc)
-library(ggplot2, lib.loc=libloc)
-library(nlme, lib.loc=libloc)
-library(geepack, lib.loc=libloc)
-library(stringr, lib.loc=libloc)
+library(z.stepped.wedge)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(nlme)
+library(geepack)
+library(stringr)
 # library(simba, lib.loc=libloc)
-library(parallel, lib.loc=libloc)
-library(numDeriv, lib.loc=libloc)
+library(parallel)
+library(numDeriv)
 
 ```
 
@@ -44,7 +37,7 @@ library(numDeriv, lib.loc=libloc)
 ```{r}
 
 run_main <- TRUE
-run_misc <- TRUE
+run_misc <- FALSE
 
 ```
 
@@ -74,8 +67,8 @@ if ( run_main ) {
                       "hessian", "str_sub"))
   
   # Repeate simulation 1000 times
-  results_lists <- parLapply(cl,1:10,function(x){
-  # results_lists <- parLapply(cl,1:1000,function(x){
+  # results_lists <- parLapply(cl,1:10,function(x){
+  results_lists <- parLapply(cl,1:1000,function(x){
     
     # Generate normal data
     data <- generate_dataset(
@@ -91,9 +84,7 @@ if ( run_main ) {
     )
     
     # Run analysis
-    return (
-      run_analysis(data)
-    )
+    return ( run_analysis(data) )
     
   })
   
@@ -220,23 +211,97 @@ if ( run_misc ) {
 if ( run_misc ) {
   
   ggplot(data.frame(x=c(0,8)), aes(x=x)) +
+    # stat_function(fun = function(x) {
+    #   return(ifelse(x>=2,1,0))
+    # }, aes(color="Step function")) +
+    # stat_function(fun = function(x) {
+    #   d = 1
+    #   I = ifelse(x>=1, 1, 0)
+    #   return(I * (1-exp(-(x-1)/d)))
+    # }, aes(color="Current function")) +
     stat_function(fun = function(x) {
-      return(ifelse(x>=1,1,0))
-    }, aes(color="Step function")) +
-    stat_function(fun = function(x) {
-      d = 1
-      I = ifelse(x>=1, 1, 0)
-      return(I * (1-exp(-(x-1)/d)))
-    }, aes(color="Current function")) +
-    stat_function(fun = function(x) {
-      i1 = ifelse(x>=1 & x<2, 1, 0)
+      i1 = ifelse(x>=0 & x<2, 1, 0)
       i2 = ifelse(x>=2 & x<5, 1, 0)
       i3 = ifelse(x>=5, 1, 0)
-      return( i1*(0.75*x-0.75) + i2*((0.25/3)*x + 1-5*(0.25/3)) + i3 )
-    }, aes(color="Linear spline")) +
+      return( i1*(0.4*x) + i2*((0.2/3)*x + (2/3)) + i3 )
+    }) +
+    # }, aes(color="Linear spline")) +
     geom_point(aes(x=5, y=1), colour="green") +
-    geom_point(aes(x=2, y=0.75), colour="purple") +
-    labs(color="Type", y="% of treatment effect achieved")
+    geom_point(aes(x=2, y=0.8), colour="purple") +
+    labs(
+      title = "Linear spline model for R_ij",
+      # color = "Type",
+      y = "R_ij (% of treatment effect achieved)",
+      x = "Time (t_ij)"
+    )
     
+}
+```
+
+
+# ARCHIVE: Old code (to recycle) from run_analysis
+```{r}
+if ( FALSE ) {
+  
+  # # Testing
+  # data <- generate_dataset(
+  #   alpha = log(0.1),
+  #   tau = 0,
+  #   theta = log(0.5),
+  #   d = 0.5,
+  #   n_clusters = 48,
+  #   n_time_points = 9,
+  #   n_ind_per_cluster = 10,
+  #   type = "normal",
+  #   # type = "binomial",
+  #   sigma = 0.1
+  # )
+  # plot_sw_design(data)
+  # plot_outcome(data, type="no error")
+  # plot_outcome(data, type="realized")
+  # print(data$beta_js)
+  # print(data$theta_ls)
+  
+  # # LMM code
+  # model_lmm <- lme(
+  #   fixed = y ~ factor(j) + factor(x_ij), # !!!!! Force beta_1=0
+  #   random = ~1|i,
+  #   data = data$data,
+  #   # data = data,
+  #   method = "ML"
+  # )
+  # summary(model_lmm)
+  
+  # # Binomial GLM
+  # model_binomial_gee1 <- geeglm(
+  #   y ~ factor(j) + factor(x_ij),
+  #   data = data$data,
+  #   id = i,
+  #   family = binomial(link = "log"),
+  #   corstr = "exchangeable"
+  # )
+  # summary(model_binomial_gee1)
+  # system.time(
+  #   model_binomial_gee2 <- geeglm(
+  #     y ~ factor(j) + factor(l),
+  #     data = data$data,
+  #     id = i,
+  #     family = binomial(link = "log"),
+  #     corstr = "exchangeable"
+  #   )
+  # )
+  # summary(model_gee2)
+  
+  # # Only estimate theta (step function)
+  # model_normal_gee1 <- geeglm(
+  #   y ~ factor(j) + factor(x_ij),
+  #   data = data$data,
+  #   id = i,
+  #   family = "gaussian",
+  #   corstr = "exchangeable"
+  # )
+  # summary(model_normal_gee1)
+  
+  
 }
 ```
