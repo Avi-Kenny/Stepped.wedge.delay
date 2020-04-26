@@ -1,7 +1,7 @@
 ---
 title: "Stepped wedge lagged effect simulation"
 author: "Avi Kenny"
-date: "April 19, 2020"
+date: "April 25, 2020"
 output: rmarkdown::word_document
 vignette: >
   %\VignetteIndexEntry{main}
@@ -16,7 +16,11 @@ editor_options:
 # SETUP: Load packages
 ```{r}
 
-# devtools::install_github("Avi-Kenny/simba")
+# devtools::install_github(
+#   repo = "Avi-Kenny/simba",
+#   lib = '/home/akenny/R_lib',
+#   dependencies = TRUE
+# )
 
 library(z.stepped.wedge)
 library(dplyr)
@@ -25,7 +29,7 @@ library(ggplot2)
 library(nlme)
 library(geepack)
 library(stringr)
-# library(simba, lib.loc=libloc)
+library(simba)
 library(parallel)
 library(numDeriv)
 
@@ -47,79 +51,181 @@ run_misc <- FALSE
 ```{r}
 if ( run_main ) {
   
-  # d=0, so that theta_1 = ... = theta_{J−1} = theta
-  # I \in {12, 24, 48}
-  # J \in {5, 7, 9}
-  # K \in {20, 50, 100}
+  start_time <- Sys.time()
+  
+  sim <- new_sim()
+  
+  sim %<>% set_config(
+    num_sim = 10,
+    # num_sim = 1000,
+    parallel = "none",
+    # parallel = "outer",
+    packages = c("magrittr", "stringr", "geepack", "numDeriv")
+  )
+  
+  sim %<>% add_constants(
+    d = 0,
+    alpha = log(0.1)
+  )
+  
+  sim %<>% set_levels(
+    # n_clusters = c(96),
+    # n_time_points = c(7),
+    # n_ind_per_cluster = c(50),
+    n_clusters = c(24, 48, 96),
+    n_time_points = c(5, 7, 9),
+    n_ind_per_cluster = c(20, 50, 100),
+    theta = log(0.5)
+  )
+  
   # tau^2 \in {0, 0.01, 0.04, 0.09, 0.16, 0.25}
-  # theta := log(RR) = log(0.5)
-  # alpha := log baseline prevalence = log(0.1)
   # N := # of simulations = 1,000
   # Output bias and precision for intervention effect estimate
   # Output bias of estimate of lag duration
   
-  # Make cluster
-  n_cores <- detectCores()
-  cl <- makeCluster(n_cores)
+  sim %<>% add_creator(generate_dataset)
   
-  # Export functions/variables to cluster
-  clusterExport(cl, c("generate_dataset", "%<>%", "run_analysis", "geeglm", 
-                      "hessian", "str_sub"))
+  # Use numerical ML to estimate mu_hat
+  sim %<>% add_method(
+    "neg_log_lik",
+    function(theta, d, J, theta_l_hat, sigma_l_hat) {
+      
+      l_times <- 1:(J-1)
+      mu_d <- 1-exp(-l_times/d)
+      log_lik <- -0.5 * t(theta_l_hat - theta*mu_d) %*%
+        solve(sigma_l_hat) %*% (theta_l_hat - theta*mu_d)
+      
+      return (-1*log_lik)
+      
+    }
+  )
   
-  # Repeate simulation 1000 times
-  # results_lists <- parLapply(cl,1:10,function(x){
-  results_lists <- parLapply(cl,1:1000,function(x){
-    
-    # Generate normal data
-    data <- generate_dataset(
-      alpha = log(0.1),
-      tau = 0,
-      theta = log(0.5),
-      d = 0.5,
-      n_clusters = 48,
-      n_time_points = 9,
-      n_ind_per_cluster = 10,
-      type = "normal",
-      sigma = 0.1
+  sim %<>% add_script(
+    "one_simulation",
+    function(L,C) {
+      
+      # !!!!! DEBUGGING
+      # print(L)
+      
+print("Check 0")
+      # Generate normal data
+      data <- generate_dataset(
+        alpha = C$alpha,
+        tau = 0,
+        theta = L$theta,
+        d = C$d,
+        n_clusters = L$n_clusters,
+        n_time_points = L$n_time_points,
+        n_ind_per_cluster = L$n_ind_per_cluster,
+        type = "normal",
+        sigma = 0.1
+      )
+      
+      # Run normal linear model
+      model_normal_lm2 <- lm(
+        y ~ factor(j) + factor(l),
+        data = data$data
+      )
+      
+      # Extract coefficients and SEs
+      coeff_names <- names(model_normal_lm2$coefficients)
+      theta_l_hat <- as.numeric(model_normal_lm2$coefficients)
+      sigma_l_hat <- vcov(model_normal_lm2)
+      indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
+      coeff_names <- coeff_names[indices]
+      theta_l_hat <- theta_l_hat[indices]
+      sigma_l_hat <- sigma_l_hat[indices,indices]
+      
+      # Generate ML estimates of theta and d
+      opt <- optim(
+        par = c(theta=-0.1, d=1),
+        fn = function(par) {
+          return (
+            neg_log_lik(
+              theta = par[1],
+              d = par[2],
+              J = L$n_time_points,
+              theta_l_hat = theta_l_hat,
+              sigma_l_hat = sigma_l_hat
+            )
+          )
+        }
+      )
+      theta_hat <- opt$par[["theta"]]
+      d_hat <- opt$par[["d"]]
+      
+# h2 <- optimHess(
+#   par = c(theta_hat, d_hat),
+#   fn = function(par) {
+#     return (
+#       neg_log_lik(
+#         theta = par[1],
+#         d = par[2],
+#         J = L$n_time_points,
+#         theta_l_hat = theta_l_hat,
+#         sigma_l_hat = sigma_l_hat
+#       )
+#     )
+#   }
+# )
+
+      # !!!!! Debugging
+      # optimHess(par, fn, gr = NULL, ..., control = list())
+      
+      # Use hessian to estimate SEs
+      h <- hessian(
+        func = function(par) {
+          return (
+            neg_log_lik(
+              theta = par[1],
+              d = par[2],
+              J = L$n_time_points,
+              theta_l_hat = theta_l_hat,
+              sigma_l_hat = sigma_l_hat
+            )
+          )
+        },
+        c(theta_hat,d_hat)
+      )
+
+      se_theta_hat <- sqrt(solve(h)[1,1])
+      # se_theta_hat <- ifelse(solve(h)[1,1]>0, sqrt(solve(h)[1,1]), NULL)
+      se_d_hat <- sqrt(solve(h)[2,2])
+      # se_d_hat <- ifelse(solve(h)[2,2]>0, sqrt(solve(h)[2,2]), NULL)
+
+      # Construct theta_hat2 estimator (closed-form MLE of theta)
+      l_times <- 1:(L$n_time_points-1)
+      mu_d_hat <- 1-exp(-l_times/d_hat)
+      theta_hat2 <- (t(theta_l_hat) %*% solve(sigma_l_hat) %*% mu_d_hat) /
+        (t(mu_d_hat) %*% solve(sigma_l_hat) %*% mu_d_hat)
+      
+      # ggplot(theta_hats, aes(x=l, y=theta_l_est)) +
+      #   geom_point(color="turquoise")
+      
+      return (list(
+        d_hat = d_hat,
+        theta_hat = theta_hat,
+        theta_hat2 = theta_hat2,
+        se_d_hat = se_d_hat,
+        se_theta_hat = se_theta_hat
+      ))
+      
+    }
+  )
+  
+  sim %<>% run("one_simulation")
+  
+  summary(
+    sim_obj = sim,
+    sd = TRUE,
+    coverage = list(
+      list(name="theta", truth=L$theta,
+           estimate=R$theta_hat, se=R$se_theta_hat),
+      list(name="d", truth=C$d, estimate=R$d_hat, se=R$se_d_hat)
     )
-    
-    # Run analysis
-    return ( run_analysis(data) )
-    
-  })
-  
-  results <- data.frame(
-    matrix(
-      unlist(results_lists),
-      nrow = length(results_lists),
-      byrow = TRUE
-    )
-  )
-  names(results) <- names(results_lists[[1]])
-  
-  results %<>% mutate(
-    ci_d_lo = d_hat - 1.96*se_d_hat,
-    ci_d_hi = d_hat + 1.96*se_d_hat,
-    ci_theta_lo = theta_hat - 1.96*se_theta_hat,
-    ci_theta_hi = theta_hat + 1.96*se_theta_hat,
-    ci_theta2_lo = theta_hat - 1.96*se_theta_hat2,
-    ci_theta2_hi = theta_hat + 1.96*se_theta_hat2
-  )
-  results %<>% mutate(
-    cov_d = ifelse(ci_d_lo<=0.5 & 0.5<=ci_d_hi, 1, 0),
-    cov_theta = ifelse(ci_theta_lo<=log(0.5) & log(0.5)<=ci_theta_hi, 1, 0),
-    cov_theta2 = ifelse(ci_theta2_lo<=log(0.5) & log(0.5)<=ci_theta2_hi, 1, 0)
   )
   
-  # Print results
-  print(paste("Empirical SE of theta_hat:", signif(sd(results$theta_hat),3)))
-  print(paste("Empirical SE of d_hat:", signif(sd(results$d_hat),3)))
-  print(paste("Avg se_d_hat:", signif(mean(results$se_d_hat),3)))
-  print(paste("Avg se_theta_hat:", signif(mean(results$se_theta_hat),3)))
-  print(paste("Avg se_theta_hat2:", signif(mean(results$se_theta_hat2),3)))
-  print(paste("Coverage of d:", signif(mean(results$cov_d),3)))
-  print(paste("Coverage of theta:", signif(mean(results$cov_theta),3)))
-  print(paste("Coverage of theta2:", signif(mean(results$cov_theta2),3)))
+  print(paste("Time elapsed:", Sys.time()-start_time))
   
   # Plots
   # plot_sw_design(data_1)
@@ -174,7 +280,7 @@ if ( run_misc ) {
   mu_d <- matrix(0.3*c(3:(J+2)),ncol=1)
   A <- matrix(runif(J^2)*2-1, ncol=J)
   sigma_inv <- t(A) %*% A
-  
+
   neg_log_lik <- function(theta) {
     return(
       (1/2) * t(theta_hat_l-(theta*mu_d)) %*%

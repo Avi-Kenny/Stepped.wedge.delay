@@ -4,7 +4,7 @@
 #' @return TO DO
 #' @export
 # FN: generate_dataset
-log_lik <- function(sigma_v, sigma_e, alpha, beta, theta, p_x, p_y, g_x) {
+log_lik_spline <- function(sigma_v, sigma_e, alpha, beta, theta, p_x, p_y, g_x) {
 
   data <- data$data
 
