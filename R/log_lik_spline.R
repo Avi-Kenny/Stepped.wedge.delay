@@ -1,35 +1,40 @@
 #' Return the log likelihood for the spline model
 #'
-#' @param data A dataset returned by generate_dataset()
-#' @return TO DO
+#' @param sigma_v !!!!! TO DO
+#' @return !!!!! TO DO
 #' @export
-# FN: generate_dataset
-log_lik_spline <- function(sigma_v, sigma_e, alpha, beta, theta, p_x, p_y, g_x) {
+log_lik_spline <- function(
+  sigma_v, sigma_e, alpha,
+  beta_1, beta_2, beta_3, beta_4, beta_5,
+  theta, p_x, p_y, g_x, data
+) {
 
-  data <- data$data
+  I <- data$params$n_clusters
+  J <- data$params$n_time_points
+  K <- data$params$n_ind_per_cluster
+  beta <- c(beta_1, beta_2, beta_3, beta_4, beta_5)
 
-  # Data: v_i, y
+  # !!!!! Can speed this up by calculating this in advance
+  df <- data$data %>% mutate(
+    r_ij = r_ij(p_x, p_y, g_x, c_i, j),
+    s = y - alpha - beta[j] - theta*r_ij,
+    t = s^2
+  )
 
-  loop_sum <- 0
-  for (i in 1:I) {
-    v_i <- 999
-    loop_sum <- loop_sum - (v_i^2)
-  }
-  loop_sum <- loop_sum / (2*(sigma_v^2))
-  for (i in 1:I) {
-    c_i <- 999
-    v_i <- 999
-    for (j in 1:J) {
-      beta_j <- 999
-      r_ij <- r_ij(p_x, p_y, g_x, c_i, j)
-      for (k in 1:K) {
-        y <- 999
-        term <- (y-(alpha + v_i + beta_j + (theta*r_ij)))^2 / (2*(sigma_e^2))
-        loop_sum <- loop_sum - term
-      }
-    }
-  }
+  df_sum <- df %>% group_by(i) %>% summarize(
+    s = sum(s),
+    t = sum(t)
+  )
 
+  s_i <- df_sum$s
+  t_i <- df_sum$t
+
+  t1 <- (I/2) *
+        log((2*pi*(sigma_e^2)*(sigma_v^2))/((sigma_e^2)+(J*K*(sigma_v^2))))
+  t2 <- (sigma_v^2)/(2*(sigma_e^2)*((sigma_e^2)+J*K*(sigma_v^2)))
+  t3 <- sum(s_i^2-t_i)
+
+  return(t1 + t2*t3)
 
 }
 

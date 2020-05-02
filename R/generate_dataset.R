@@ -27,6 +27,7 @@ generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
     "v_i" = double(), # cluster random effect
     "y_ij" = double(), # cluster-level probability or mean
     "x_ij" = integer(), # treatment state indicator
+    "c_i" = integer(), # the start time of the treatment
     "y" = integer() # binary outcome
   )
   if (type == "binomial") {
@@ -55,6 +56,7 @@ generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
   for (i in 1:n_clusters) {
 
     v_i <- rnorm(1, mean=0, sd=tau)
+    c_i <- crossover_times[i]-1
 
     for (j in 1:n_time_points) {
 
@@ -80,15 +82,15 @@ generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
         y <- y_ij + rnorm(k, mean=0, sd=sigma)
         # !!!!! This table is too bulky
         data <- rbind(data, data.frame(cbind(
-          i=rep(i,k), j=rep(j,k), k=rep(k,k), l=rep(l,k),
-          v_i=rep(v_i,k), y_ij=rep(y_ij,k), x_ij=rep(x_ij,k), y=y
+          i=rep(i,k), j=rep(j,k), k=rep(k,k), l=rep(l,k), v_i=rep(v_i,k),
+          y_ij=rep(y_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y
         )))
       } else if (type=="binomial") {
         y <- rbinom(n=k, size=1, prob=p_ij)
         # !!!!! This table is too bulky
         data <- rbind(data, data.frame(cbind(
-          i=rep(i,k), j=rep(j,k), k=rep(k,k), l=rep(l,k),
-          v_i=rep(v_i,k), p_ij=rep(p_ij,k), x_ij=rep(x_ij,k), y=y
+          i=rep(i,k), j=rep(j,k), k=rep(k,k), l=rep(l,k), v_i=rep(v_i,k),
+          p_ij=rep(p_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y
         )))
       }
 

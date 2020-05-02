@@ -31,7 +31,8 @@ library(geepack)
 library(stringr)
 library(simba)
 library(parallel)
-library(numDeriv)
+
+# detach(package:simba)
 
 ```
 
@@ -47,45 +48,55 @@ run_misc <- FALSE
 
 
 
-# MAIN: Simulation 1: No effect lag present
+# MAIN: Simulation setup
 ```{r}
 if ( run_main ) {
   
-  start_time <- Sys.time()
+  print(paste("Number of available cores:", parallel::detectCores()))
+  print(paste("SLURM_ARRAY_JOB_ID:", Sys.getenv("SLURM_ARRAY_JOB_ID")))
+  print(paste("SLURM_CPUS_ON_NODE:", Sys.getenv("SLURM_CPUS_ON_NODE")))
+  print(paste("SLURM_NODELIST:", Sys.getenv("SLURM_NODELIST")))
+  print(paste("SLURM_NNODES:", Sys.getenv("SLURM_NNODES")))
+  print(paste("SLURM_NTASKS:", Sys.getenv("SLURM_NTASKS")))
   
   sim <- new_sim()
   
   sim %<>% set_config(
-    num_sim = 10,
     # num_sim = 1000,
+    num_sim = 10, # !!!!! Testing
     parallel = "none",
     # parallel = "outer",
-    packages = c("magrittr", "stringr", "geepack", "numDeriv")
+    packages = c("magrittr", "stringr", "geepack", "nlme", "z.stepped.wedge")
   )
   
   sim %<>% add_constants(
-    d = 0,
-    alpha = log(0.1)
+    alpha = log(0.1),
+    sigma = 0.3 # Same variance as a Bern(0.1) rv
   )
   
-  sim %<>% set_levels(
-    # n_clusters = c(96),
-    # n_time_points = c(7),
-    # n_ind_per_cluster = c(50),
-    n_clusters = c(24, 48, 96),
-    n_time_points = c(5, 7, 9),
-    n_ind_per_cluster = c(20, 50, 100),
-    theta = log(0.5)
-  )
+  # # !!!!! Testing
+  # sim %<>% set_levels(
+  #   n_clusters = 24,
+  #   n_time_points = 7,
+  #   n_ind_per_cluster = 20,
+  #   theta = log(0.5),
+  #   d = 0,
+  #   tau = 0,
+  #   analysis_type = c("2S LM", "2S GEE", "2S LMM")
+  # )
   
-  # tau^2 \in {0, 0.01, 0.04, 0.09, 0.16, 0.25}
-  # N := # of simulations = 1,000
-  # Output bias and precision for intervention effect estimate
-  # Output bias of estimate of lag duration
+  # # All levels
+  # sim %<>% set_levels(
+  #   n_clusters = c(24, 48),
+  #   n_time_points = c(5, 7, 9),
+  #   n_ind_per_cluster = c(20, 50, 100),
+  #   theta = log(0.5),
+  #   d = c(0, 0.5, 1.4),
+  #   tau = c(0, 0.2, 0.4), # Excluding 0.1, 0.3, 0.5
+  #   analysis_type = c("2S LM", "2S GEE", "2S LMM") # Excluding "PP SPL", "FX SPL"
+  # )
   
-  sim %<>% add_creator(generate_dataset)
-  
-  # Use numerical ML to estimate mu_hat
+  # Negative log lik corresponding to two-stage dissertation approach
   sim %<>% add_method(
     "neg_log_lik",
     function(theta, d, J, theta_l_hat, sigma_l_hat) {
@@ -100,137 +111,288 @@ if ( run_main ) {
     }
   )
   
-  sim %<>% add_script(
-    "one_simulation",
-    function(L,C) {
+  # Negative log lik corresponding to two-stage spline approach
+  sim %<>% add_method(
+    "neg_log_lik_spl",
+    function(theta, p_x, p_y, J, theta_l_hat, sigma_l_hat) {
       
-      # !!!!! DEBUGGING
-      # print(L)
+      # !!!!! g_x hard-coded for now
+      g_x <- J
       
-print("Check 0")
-      # Generate normal data
-      data <- generate_dataset(
-        alpha = C$alpha,
-        tau = 0,
-        theta = L$theta,
-        d = C$d,
-        n_clusters = L$n_clusters,
-        n_time_points = L$n_time_points,
-        n_ind_per_cluster = L$n_ind_per_cluster,
-        type = "normal",
-        sigma = 0.1
-      )
+      l_times <- 1:(J-1)
+      mu_spl <- sapply(l_times, function(l) {
+        I1 <- ifelse(0<l & l<=p_x, 1, 0)
+        I2 <- ifelse(p_x<l & l<=g_x, 1, 0)
+        I3 <- ifelse(g_x<l, 1, 0)
+        (p_y/p_x)*l*I1 + ((1-p_y)*l+g_x+p_y-p_x-1)/(g_x-p_x)*I2 + I3
+      })
       
-      # Run normal linear model
-      model_normal_lm2 <- lm(
-        y ~ factor(j) + factor(l),
-        data = data$data
-      )
+      log_lik <- -0.5 * t(theta_l_hat - theta*mu_spl) %*%
+        solve(sigma_l_hat) %*% (theta_l_hat - theta*mu_spl)
       
-      # Extract coefficients and SEs
-      coeff_names <- names(model_normal_lm2$coefficients)
-      theta_l_hat <- as.numeric(model_normal_lm2$coefficients)
-      sigma_l_hat <- vcov(model_normal_lm2)
-      indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
-      coeff_names <- coeff_names[indices]
-      theta_l_hat <- theta_l_hat[indices]
-      sigma_l_hat <- sigma_l_hat[indices,indices]
-      
-      # Generate ML estimates of theta and d
-      opt <- optim(
-        par = c(theta=-0.1, d=1),
-        fn = function(par) {
-          return (
-            neg_log_lik(
-              theta = par[1],
-              d = par[2],
-              J = L$n_time_points,
-              theta_l_hat = theta_l_hat,
-              sigma_l_hat = sigma_l_hat
-            )
-          )
-        }
-      )
-      theta_hat <- opt$par[["theta"]]
-      d_hat <- opt$par[["d"]]
-      
-# h2 <- optimHess(
-#   par = c(theta_hat, d_hat),
-#   fn = function(par) {
-#     return (
-#       neg_log_lik(
-#         theta = par[1],
-#         d = par[2],
-#         J = L$n_time_points,
-#         theta_l_hat = theta_l_hat,
-#         sigma_l_hat = sigma_l_hat
-#       )
-#     )
-#   }
-# )
-
-      # !!!!! Debugging
-      # optimHess(par, fn, gr = NULL, ..., control = list())
-      
-      # Use hessian to estimate SEs
-      h <- hessian(
-        func = function(par) {
-          return (
-            neg_log_lik(
-              theta = par[1],
-              d = par[2],
-              J = L$n_time_points,
-              theta_l_hat = theta_l_hat,
-              sigma_l_hat = sigma_l_hat
-            )
-          )
-        },
-        c(theta_hat,d_hat)
-      )
-
-      se_theta_hat <- sqrt(solve(h)[1,1])
-      # se_theta_hat <- ifelse(solve(h)[1,1]>0, sqrt(solve(h)[1,1]), NULL)
-      se_d_hat <- sqrt(solve(h)[2,2])
-      # se_d_hat <- ifelse(solve(h)[2,2]>0, sqrt(solve(h)[2,2]), NULL)
-
-      # Construct theta_hat2 estimator (closed-form MLE of theta)
-      l_times <- 1:(L$n_time_points-1)
-      mu_d_hat <- 1-exp(-l_times/d_hat)
-      theta_hat2 <- (t(theta_l_hat) %*% solve(sigma_l_hat) %*% mu_d_hat) /
-        (t(mu_d_hat) %*% solve(sigma_l_hat) %*% mu_d_hat)
-      
-      # ggplot(theta_hats, aes(x=l, y=theta_l_est)) +
-      #   geom_point(color="turquoise")
-      
-      return (list(
-        d_hat = d_hat,
-        theta_hat = theta_hat,
-        theta_hat2 = theta_hat2,
-        se_d_hat = se_d_hat,
-        se_theta_hat = se_theta_hat
-      ))
+      return (-1*log_lik)
       
     }
+  )
+  
+  sim %<>% add_creator(generate_dataset)
+  sim %<>% add_script(one_simulation)
+  
+}
+```
+
+
+
+# !!!!! TEMP TESTING
+```{r}
+if ( run_main ) {
+  
+  start_time <- Sys.time()
+  
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 12,
+    n_time_points = 7,
+    n_ind_per_cluster = 100,
+    theta = log(0.5),
+    d = 0.5,
+    tau = 0,
+    analysis_type = c("2S LM")
   )
   
   sim %<>% run("one_simulation")
   
   summary(
     sim_obj = sim,
-    sd = TRUE,
-    coverage = list(
-      list(name="theta", truth=L$theta,
-           estimate=R$theta_hat, se=R$se_theta_hat),
-      list(name="d", truth=C$d, estimate=R$d_hat, se=R$se_d_hat)
-    )
+    bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
   )
   
-  print(paste("Time elapsed:", Sys.time()-start_time))
+  print("")
+  print(difftime(Sys.time(), start_time))
   
-  # Plots
-  # plot_sw_design(data_1)
-  # plot_outcome(data_1, type="no error")
-  # plot_outcome(data_1, type="realized")
+}
+```
+
+
+
+# MAIN: Reproduce table 3.1
+```{r}
+if ( run_main ) {
+  
+  start_time <- Sys.time()
+  
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = c(12,24,48),
+    n_time_points = 7,
+    n_ind_per_cluster = 100,
+    theta = log(0.5),
+    d = c(0, 0.5, 1.4),
+    tau = 0,
+    analysis_type = c("2S LM", "IG LM")
+  )
+  
+  sim %<>% run("one_simulation")
+  
+  summary(
+    sim_obj = sim,
+    bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
+  )
+  
+  print("")
+  print(difftime(Sys.time(), start_time))
+  
+}
+```
+
+
+
+# MAIN: Reproduce table 3.2
+```{r}
+if ( run_main ) {
+  
+  start_time <- Sys.time()
+  
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 24,
+    n_time_points = c(5,7,9),
+    n_ind_per_cluster = 100,
+    theta = log(0.5),
+    d = c(0, 0.5, 1.4),
+    tau = 0,
+    analysis_type = c("2S LM", "IG LM")
+  )
+  
+  sim %<>% run("one_simulation")
+  
+  summary(
+    sim_obj = sim,
+    bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
+  )
+  
+  print("")
+  print(difftime(Sys.time(), start_time))
+  
+}
+```
+
+
+
+# MAIN: Reproduce table 3.3
+```{r}
+if ( run_main ) {
+  
+  start_time <- Sys.time()
+  
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 24,
+    n_time_points = 7,
+    n_ind_per_cluster = c(20,50,100),
+    theta = log(0.5),
+    d = c(0, 0.5, 1.4),
+    tau = 0,
+    analysis_type = c("2S LM", "IG LM")
+  )
+  
+  sim %<>% run("one_simulation")
+  
+  summary(
+    sim_obj = sim,
+    bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
+  )
+  
+  print("")
+  print(difftime(Sys.time(), start_time))
+  
+}
+```
+
+
+
+# MAIN: Reproduce table 3.4
+```{r}
+if ( run_main ) {
+  
+  start_time <- Sys.time()
+  
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = c(12,24,48),
+    n_time_points = 7,
+    n_ind_per_cluster = 100,
+    theta = log(0.5),
+    d = c(0.5, 1.4),
+    tau = 0,
+    analysis_type = c("2S LM")
+  )
+  
+  sim %<>% run("one_simulation")
+  
+  summary(
+    sim_obj = sim,
+    bias = list(name="bias_d", truth="d", estimate="d_hat")
+  )
+  
+  print("")
+  print(difftime(Sys.time(), start_time))
+  
+}
+```
+
+
+
+# MAIN: Reproduce table 3.5
+```{r}
+if ( run_main ) {
+  
+  start_time <- Sys.time()
+  
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 24,
+    n_time_points = c(5,7,9),
+    n_ind_per_cluster = 100,
+    theta = log(0.5),
+    d = c(0.5, 1.4),
+    tau = 0,
+    analysis_type = c("2S LM")
+  )
+  
+  sim %<>% run("one_simulation")
+  
+  summary(
+    sim_obj = sim,
+    bias = list(name="bias_d", truth="d", estimate="d_hat")
+  )
+  
+  print("")
+  print(difftime(Sys.time(), start_time))
+  
+}
+```
+
+
+
+# MAIN: Reproduce table 3.6
+```{r}
+if ( run_main ) {
+  
+  start_time <- Sys.time()
+  
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 24,
+    n_time_points = 7,
+    n_ind_per_cluster = c(20,50,100),
+    theta = log(0.5),
+    d = c(0.5, 1.4),
+    tau = 0,
+    analysis_type = c("2S LM")
+  )
+  
+  sim %<>% run("one_simulation")
+  
+  summary(
+    sim_obj = sim,
+    bias = list(name="bias_d", truth="d", estimate="d_hat")
+  )
+  
+  print("")
+  print(difftime(Sys.time(), start_time))
+  
+}
+```
+
+
+
+# !!!!! TESTING: Two-stage spline
+```{r}
+if ( run_main ) {
+  
+  start_time <- Sys.time()
+  
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 24,
+    n_time_points = 7,
+    n_ind_per_cluster = 100,
+    theta = log(0.5),
+    d = c(0, 0.5, 1.4),
+    tau = 0,
+    analysis_type = c("2S SPL")
+  )
+  
+  sim %<>% run("one_simulation")
+  
+  summary(
+    sim_obj = sim,
+    bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
+  )
+  
+  print("")
+  print(difftime(Sys.time(), start_time))
   
 }
 ```
@@ -349,34 +511,27 @@ if ( run_misc ) {
 ```{r}
 if ( FALSE ) {
   
-  # # Testing
-  # data <- generate_dataset(
-  #   alpha = log(0.1),
-  #   tau = 0,
-  #   theta = log(0.5),
-  #   d = 0.5,
-  #   n_clusters = 48,
-  #   n_time_points = 9,
-  #   n_ind_per_cluster = 10,
-  #   type = "normal",
-  #   # type = "binomial",
-  #   sigma = 0.1
+  # summary(
+  #   sim_obj = sim,
+  #   sd = list(
+  #     list(name="sd_theta_hat", x="theta_hat"),
+  #     list(name="sd_d_hat", x="d_hat")
+  #   ),
+  #   bias = list(
+  #     list(name="bias_theta", truth="theta", estimate="theta_hat"),
+  #     list(name="bias_d", truth="d", estimate="d_hat")
+  #   ),
+  #   coverage = list(
+  #     list(name="cov_theta", truth="theta",
+  #          estimate="theta_hat", se="se_theta_hat"),
+  #     list(name="cov_d", truth="d", estimate="d_hat", se="se_d_hat")
+  #   )
   # )
-  # plot_sw_design(data)
-  # plot_outcome(data, type="no error")
-  # plot_outcome(data, type="realized")
-  # print(data$beta_js)
-  # print(data$theta_ls)
   
-  # # LMM code
-  # model_lmm <- lme(
-  #   fixed = y ~ factor(j) + factor(x_ij), # !!!!! Force beta_1=0
-  #   random = ~1|i,
-  #   data = data$data,
-  #   # data = data,
-  #   method = "ML"
-  # )
-  # summary(model_lmm)
+  # Plots
+  # plot_sw_design(data_1)
+  # plot_outcome(data_1, type="no error")
+  # plot_outcome(data_1, type="realized")
   
   # # Binomial GLM
   # model_binomial_gee1 <- geeglm(
@@ -407,7 +562,6 @@ if ( FALSE ) {
   #   corstr = "exchangeable"
   # )
   # summary(model_normal_gee1)
-  
   
 }
 ```

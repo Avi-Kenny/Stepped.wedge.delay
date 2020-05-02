@@ -4,10 +4,22 @@
 \alias{run_analysis}
 \title{Run the data analysis}
 \usage{
-run_analysis(data)
+run_analysis(data, type, L, C)
 }
 \arguments{
-\item{x}{TO DO}
+\item{data}{A dataset returned by generate_dataset()}
+
+\item{type}{A character string corresponding to one of the following: "2S LM"
+(two-stage using a simple linear model in first stage), "2S GEE"
+(two-stage using GEE in first stage), "2S LMM" (two-stage using LMM in
+first stage) "PP SPL" (the "Purple point spline" method), "FX SPL" (the
+"fixed X-coordinate" spline method), "IG LM" (simple linear model that
+ignores the time-lag effect), "IG GEE" (GEE that ignores the time-lag
+effect)}
+
+\item{L}{Passed via simba; list of simulation levels}
+
+\item{C}{Passed via simba; list of simulation constants}
 }
 \value{
 TO DO
