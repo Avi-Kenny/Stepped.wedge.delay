@@ -6,7 +6,7 @@
 #' @export
 one_simulation <- function(L,C) {
 
-  # Generate normal data
+  # Generate dataset
   data <- generate_dataset(
     alpha = C$alpha,
     tau = L$tau,
@@ -15,7 +15,7 @@ one_simulation <- function(L,C) {
     n_clusters = L$n_clusters,
     n_time_points = L$n_time_points,
     n_ind_per_cluster = L$n_ind_per_cluster,
-    type = "normal",
+    data_type = L$data_type,
     sigma = C$sigma
   )
 
@@ -25,7 +25,8 @@ one_simulation <- function(L,C) {
 
   results <- run_analysis(
     data = data,
-    type = L$analysis_type,
+    analysis_type = L$analysis_type,
+    data_type = L$data_type,
     L = L,
     C = C
   )

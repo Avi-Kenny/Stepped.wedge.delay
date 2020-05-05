@@ -12,7 +12,7 @@ generate_dataset(
   n_clusters,
   n_time_points,
   n_ind_per_cluster,
-  type,
+  data_type,
   sigma = NA
 )
 }
@@ -31,9 +31,9 @@ generate_dataset(
 
 \item{n_ind_per_cluster}{Total number of individuals per cluster (assumes}
 
-\item{type}{Type of outcome; options include "binomial" or "normal"}
+\item{data_type}{Type of outcome; options include "binomial" or "normal"}
 
-\item{sigma}{Standard deviation of the outcome (if type="normal"; omit
+\item{sigma}{Standard deviation of the outcome (if data_type="normal"; omit
 otherwise)
 equal cluster sizes)}
 }

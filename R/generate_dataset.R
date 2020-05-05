@@ -7,8 +7,8 @@
 #' @param n_clusters Total number of clusters
 #' @param n_time_points Total number of time points ("J")
 #' @param n_ind_per_cluster Total number of individuals per cluster (assumes
-#' @param type Type of outcome; options include "binomial" or "normal"
-#' @param sigma Standard deviation of the outcome (if type="normal"; omit
+#' @param data_type Type of outcome; options include "binomial" or "normal"
+#' @param sigma Standard deviation of the outcome (if data_type="normal"; omit
 #'     otherwise)
 #'     equal cluster sizes)
 #' @return A list containing the following: \cr
@@ -16,7 +16,7 @@
 #'     * `data`: the resulting data frame
 #' @export
 generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
-                             n_ind_per_cluster, type, sigma=NA) {
+                             n_ind_per_cluster, data_type, sigma=NA) {
 
   # Generate data frame
   data <- data.frame(
@@ -30,9 +30,6 @@ generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
     "c_i" = integer(), # the start time of the treatment
     "y" = integer() # binary outcome
   )
-  if (type == "binomial") {
-    data %<>% rename('p_ij' = `y_ij`)
-  }
 
   # Generate crossover times (assumes a "balanced and complete" design)
   n_clust_per_time <- n_clusters/(n_time_points-1)
@@ -69,28 +66,36 @@ generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
       theta_l <- ifelse(l>0, theta_ls[l], 0)
 
       # !!!!! This is exp rather than expit; make sure it doesn't throw error
-      if (type=="normal") {
+      if (data_type=="normal") {
         y_ij <- alpha + beta_js[j] + theta_l*x_il + v_i
-      } else if (type=="binomial") {
-        p_ij <- exp(alpha + beta_js[j] + theta_l*x_il + v_i)
+      } else if (data_type=="binomial") {
+        y_ij <- exp(alpha + beta_js[j] + theta_l*x_il + v_i)
       } else {
-        stop ("`type` must be either 'normal' or 'binomial'")
+        stop ("`data_type` must be either 'normal' or 'binomial'")
       }
 
       k <- n_ind_per_cluster
-      if (type=="normal") {
+      if (data_type=="normal") {
         y <- y_ij + rnorm(k, mean=0, sd=sigma)
         # !!!!! This table is too bulky
         data <- rbind(data, data.frame(cbind(
           i=rep(i,k), j=rep(j,k), k=rep(k,k), l=rep(l,k), v_i=rep(v_i,k),
           y_ij=rep(y_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y
         )))
-      } else if (type=="binomial") {
-        y <- rbinom(n=k, size=1, prob=p_ij)
+      } else if (data_type=="binomial") {
+        if (y_ij>1) {
+          y_ij <- 1
+          warning("Probability y_ij was >1 so it was set to 1")
+        }
+        if (y_ij<0) {
+          y_ij <- 0
+          warning("Probability y_ij was <0 so it was set to 0")
+        }
+        y <- rbinom(n=k, size=1, prob=y_ij)
         # !!!!! This table is too bulky
         data <- rbind(data, data.frame(cbind(
           i=rep(i,k), j=rep(j,k), k=rep(k,k), l=rep(l,k), v_i=rep(v_i,k),
-          p_ij=rep(p_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y
+          y_ij=rep(y_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y
         )))
       }
 

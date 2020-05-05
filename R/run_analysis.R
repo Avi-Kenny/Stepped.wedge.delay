@@ -1,10 +1,13 @@
 #' Run the data analysis
 #'
 #' @param data A dataset returned by generate_dataset()
-#' @param type A character string corresponding to one of the following: "2S LM"
-#'     (two-stage using a simple linear model in first stage), "2S GEE"
-#'     (two-stage using GEE in first stage), "2S LMM" (two-stage using LMM in
-#'     first stage) "PP SPL" (the "Purple point spline" method), "FX SPL" (the
+#' @param analysis_type A character string corresponding to one of the
+#'     following: "2S LM" (two-stage using a simple linear model in first
+#'     stage), "2S GEE EX" (two-stage using GEE in first stage; exchangeable
+#'     correlation), "2S GEE ID" (two-stage using GEE in first stage;
+#'     independence correlation), "2S LMM ML" (two-stage using LMM in first
+#'     stage; maximum likelihood), "2S LMM REML" (two-stage using LMM in first
+#'     stage; REML), "PP SPL" (the "Purple point spline" method), "FX SPL" (the
 #'     "fixed X-coordinate" spline method), "IG LM" (simple linear model that
 #'     ignores the time-lag effect), "IG GEE" (GEE that ignores the time-lag
 #'     effect)
@@ -13,74 +16,103 @@
 #' @return TO DO
 #' @export
 # FN: generate_dataset
-run_analysis <- function(data, type, L, C) {
-
-  # # !!!!! Testing
-  # data <- generate_dataset(
-  #   alpha = log(0.1),
-  #   tau = 0,
-  #   theta = log(0.5),
-  #   d = 0,
-  #   n_clusters = 24,
-  #   n_time_points = 5,
-  #   n_ind_per_cluster = 100,
-  #   type = "normal",
-  #   sigma = 0.1
-  # )
+run_analysis <- function(data, analysis_type, data_type, L, C) {
 
 # print("check 2")
 # print('exists("neg_log_lik")')
 # print(exists("neg_log_lik"))
 
-  if (type %in% c("2S LM", "2S GEE", "2S LMM")) {
+  if (!(data_type %in% c("normal", "binomial"))) {
+    stop ("`data_type` must be either 'normal' or 'binomial'")
+  }
 
-    if (type=="2S LM") {
+  if (analysis_type %in% c("2S LM", "2S GEE EX", "2S GEE ID", "2S LMM ML",
+                           "2S LMM REML")) {
 
-      # Run normal linear model
-      model_normal_lm2 <- lm(
-        y ~ factor(j) + factor(l),
-        data = data$data
-      )
+    if (analysis_type=="2S LM") {
+
+      # Run linear model
+      if (data_type=="normal") {
+        model <- lm(
+          y ~ factor(j) + factor(l),
+          data = data$data
+        )
+      } else if (data_type=="binomial") {
+        model <- glm(
+          y ~ factor(j) + factor(l),
+          data = data$data,
+          family = binomial(link="log")
+        )
+      }
 
       # Extract coefficients and SEs
-      coeff_names <- names(model_normal_lm2$coefficients)
-      theta_l_hat <- as.numeric(model_normal_lm2$coefficients)
-      sigma_l_hat <- vcov(model_normal_lm2)
+      coeff_names <- names(model$coefficients)
+      theta_l_hat <- as.numeric(model$coefficients)
+      sigma_l_hat <- vcov(model)
 
     }
 
-    if (type=="2S GEE") {
+    if (analysis_type %in% c("2S GEE EX","2S GEE ID")) {
+
+      corstr <- ifelse(
+        analysis_type=="2S GEE EX",
+        "exchangeable",
+        "independence"
+      )
 
       # Run GEE model with exchangeable working covariance matrix
-      model_normal_gee2 <- geeglm(
-        y ~ factor(j) + factor(l),
-        data = data$data,
-        id = i,
-        family = "gaussian",
-        corstr = "exchangeable"
-      )
+      if (data_type=="normal") {
+        model <- geeglm(
+          y ~ factor(j) + factor(l),
+          data = data$data,
+          id = i,
+          family = "gaussian",
+          corstr = corstr
+        )
+      } else if (data_type=="binomial") {
+        model <- geeglm(
+          y ~ factor(j) + factor(l),
+          data = data$data,
+          id = i,
+          family = binomial(link="log"),
+          corstr = corstr
+        )
+      }
 
       # Extract estimates and covariance matrix
-      coeff_names <- names(model_normal_gee2$coefficients)
-      theta_l_hat <- as.numeric(model_normal_gee2$coefficients)
-      sigma_l_hat <- model_normal_gee2$geese$vbeta
+      coeff_names <- names(model$coefficients)
+      theta_l_hat <- as.numeric(model$coefficients)
+      sigma_l_hat <- model$geese$vbeta
 
     }
 
-    if (type=="2S LMM") {
+    if (analysis_type %in% c("2S LMM ML","2S LMM REML")) {
 
-      model_lmm <- lme(
-        fixed = y ~ factor(j) + factor(l), # !!!!! Force beta_1=0
-        random = ~1|i,
-        data = data$data,
-        method = "ML"
-      )
-      summary(model_lmm)
+      reml <- ifelse(analysis_type=="2S LMM REML", TRUE, FALSE)
+
+      if (analysis_type=="2S LMM REML" && data_type=="binomial") {
+        warning(paste("ML being used (rather than REML) since REML is not",
+                      "well-defined for GLMMs"))
+      }
+
+      if (data_type=="normal") {
+        model <- lmer(
+          y ~ factor(j) + factor(l) + (1|i),
+          data = data$data,
+          REML = reml
+        )
+      } else if (data_type=="binomial") {
+        model <- glmer(
+          y ~ factor(j) + factor(l) + (1|i),
+          data = data$data,
+          family = binomial(link="log")
+        )
+      }
 
       # Extract estimates and covariance matrix
-      coeff_names <- names(model_lmm$coefficients$fixed)
-      theta_l_hat <- as.numeric(model_lmm$coefficients$fixed)
-      sigma_l_hat <- model_lmm$varFix
+      coeff_names <- names(summary(model)$coefficients[,1])
+      theta_l_hat <- as.numeric(summary(model)$coefficients[,1])
+      sigma_l_hat <- vcov(model)
 
     }
 
@@ -89,10 +121,9 @@ run_analysis <- function(data, type, L, C) {
     coeff_names <- coeff_names[indices]
     theta_l_hat <- theta_l_hat[indices]
     sigma_l_hat <- sigma_l_hat[indices,indices]
+    sigma_l_hat <- as.matrix(sigma_l_hat)
 
     # Generate ML estimates of theta and d
-    # neg_log_lik <- sim$methods$neg_log_lik # !!!!! Temp fix
-    # neg_log_lik <- sim_obj$methods$neg_log_lik # !!!!! Temp fix
     nll <- function(par) {
       return (
         neg_log_lik(
@@ -131,20 +162,28 @@ run_analysis <- function(data, type, L, C) {
 
   }
 
-  if (type == "2S SPL") {
+  if (analysis_type == "2S SPL") {
 
     # !!!!! Next three blocks are identical with "2S LM" method above
 
-    # Run normal linear model
-    model_normal_lm2 <- lm(
-      y ~ factor(j) + factor(l),
-      data = data$data
-    )
+    # Run linear model
+    if (data_type=="normal") {
+      model <- lm(
+        y ~ factor(j) + factor(l),
+        data = data$data
+      )
+    } else if (data_type=="binomial") {
+      model <- glm(
+        y ~ factor(j) + factor(l),
+        data = data$data,
+        family = binomial(link="log")
+      )
+    }
 
     # Extract coefficients and SEs
-    coeff_names <- names(model_normal_lm2$coefficients)
-    theta_l_hat <- as.numeric(model_normal_lm2$coefficients)
-    sigma_l_hat <- vcov(model_normal_lm2)
+    coeff_names <- names(model$coefficients)
+    theta_l_hat <- as.numeric(model$coefficients)
+    sigma_l_hat <- vcov(model)
 
     # Truncate theta_l_hat and sigma_l_hat
     indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
@@ -153,8 +192,6 @@ run_analysis <- function(data, type, L, C) {
     sigma_l_hat <- sigma_l_hat[indices,indices]
 
     # Generate ML estimates of theta, p_x, and p_y
-    neg_log_lik_spl <- sim$methods$neg_log_lik_spl # !!!!! Temp fix
-    # neg_log_lik_spl <- sim_obj$methods$neg_log_lik_spl # !!!!! Temp fix
     nll <- function(par) {
       return (
         neg_log_lik_spl(
@@ -199,23 +236,31 @@ run_analysis <- function(data, type, L, C) {
 
   }
 
-  if (type %in% c("IG LM", "IG GEE")) {
+  if (analysis_type %in% c("IG LM", "IG GEE")) {
 
-    if (type=="IG LM") {
+    if (analysis_type=="IG LM") {
 
-      # Run normal linear model
-      model_normal_lm <- lm(
-        y ~ factor(j) + x_ij,
-        data = data$data
-      )
+      # Run linear model
+      if (data_type=="normal") {
+        model <- lm(
+          y ~ factor(j) + x_ij,
+          data = data$data
+        )
+      } else if (data_type=="binomial") {
+        model <- glm(
+          y ~ factor(j) + x_ij,
+          data = data$data,
+          family = binomial(link="log")
+        )
+      }
 
       # Extract coefficients and SEs
-      theta_hat <- summary(model_normal_lm)$coefficients["x_ij",1]
-      se_theta_hat <- summary(model_normal_lm)$coefficients["x_ij",2]
+      theta_hat <- summary(model)$coefficients["x_ij",1]
+      se_theta_hat <- summary(model)$coefficients["x_ij",2]
 
     }
 
-    if (type=="IG GEE") {
+    if (analysis_type=="IG GEE") {
 
       # !!!!! TO DO
 
@@ -230,7 +275,7 @@ run_analysis <- function(data, type, L, C) {
 
   }
 
-  if (type=="PP SPL") {
+  if (analysis_type=="PP SPL") {
 
     # !!!!! TO DO
 
@@ -243,7 +288,7 @@ run_analysis <- function(data, type, L, C) {
 
   }
 
-  if (type=="FX SPL") {
+  if (analysis_type=="FX SPL") {
 
     # !!!!! Unfinished
 
@@ -285,8 +330,6 @@ run_analysis <- function(data, type, L, C) {
     )
     theta_hat <- opt$par[["theta"]]
     print(theta_hat)
-
-
 
     return (list(
       d_hat = NA,

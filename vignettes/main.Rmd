@@ -16,23 +16,17 @@ editor_options:
 # SETUP: Load packages
 ```{r}
 
-# devtools::install_github(
-#   repo = "Avi-Kenny/simba",
-#   lib = '/home/akenny/R_lib',
-#   dependencies = TRUE
-# )
+# devtools::install_github(repo="Avi-Kenny/simba", dependencies=TRUE)
 
 library(z.stepped.wedge)
 library(dplyr)
 library(magrittr)
 library(ggplot2)
-library(nlme)
+library(lme4)
 library(geepack)
 library(stringr)
 library(simba)
 library(parallel)
-
-# detach(package:simba)
 
 ```
 
@@ -41,60 +35,34 @@ library(parallel)
 # Set code blocks to run
 ```{r}
 
-run_main <- TRUE
+run_setup <- TRUE
+run_main <- FALSE
+run_coverage <- TRUE
 run_misc <- FALSE
+run_testing <- FALSE
 
 ```
 
 
 
-# MAIN: Simulation setup
+# SETUP: Simulation setup
 ```{r}
-if ( run_main ) {
+if ( run_setup ) {
   
-  print(paste("Number of available cores:", parallel::detectCores()))
-  print(paste("SLURM_ARRAY_JOB_ID:", Sys.getenv("SLURM_ARRAY_JOB_ID")))
-  print(paste("SLURM_CPUS_ON_NODE:", Sys.getenv("SLURM_CPUS_ON_NODE")))
-  print(paste("SLURM_NODELIST:", Sys.getenv("SLURM_NODELIST")))
-  print(paste("SLURM_NNODES:", Sys.getenv("SLURM_NNODES")))
-  print(paste("SLURM_NTASKS:", Sys.getenv("SLURM_NTASKS")))
-  
+  # Set up and configure simba object
   sim <- new_sim()
-  
   sim %<>% set_config(
-    # num_sim = 1000,
-    num_sim = 10, # !!!!! Testing
-    parallel = "none",
-    # parallel = "outer",
-    packages = c("magrittr", "stringr", "geepack", "nlme", "z.stepped.wedge")
+    num_sim = 1000,
+    # num_sim = 2, # !!!!! Testing
+    parallel = "outer",
+    # parallel = "none",
+    packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4", 
+                 "z.stepped.wedge")
   )
-  
   sim %<>% add_constants(
     alpha = log(0.1),
     sigma = 0.3 # Same variance as a Bern(0.1) rv
   )
-  
-  # # !!!!! Testing
-  # sim %<>% set_levels(
-  #   n_clusters = 24,
-  #   n_time_points = 7,
-  #   n_ind_per_cluster = 20,
-  #   theta = log(0.5),
-  #   d = 0,
-  #   tau = 0,
-  #   analysis_type = c("2S LM", "2S GEE", "2S LMM")
-  # )
-  
-  # # All levels
-  # sim %<>% set_levels(
-  #   n_clusters = c(24, 48),
-  #   n_time_points = c(5, 7, 9),
-  #   n_ind_per_cluster = c(20, 50, 100),
-  #   theta = log(0.5),
-  #   d = c(0, 0.5, 1.4),
-  #   tau = c(0, 0.2, 0.4), # Excluding 0.1, 0.3, 0.5
-  #   analysis_type = c("2S LM", "2S GEE", "2S LMM") # Excluding "PP SPL", "FX SPL"
-  # )
   
   # Negative log lik corresponding to two-stage dissertation approach
   sim %<>% add_method(
@@ -135,40 +103,9 @@ if ( run_main ) {
     }
   )
   
+  # Add functions to simba object
   sim %<>% add_creator(generate_dataset)
   sim %<>% add_script(one_simulation)
-  
-}
-```
-
-
-
-# !!!!! TEMP TESTING
-```{r}
-if ( run_main ) {
-  
-  start_time <- Sys.time()
-  
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = 12,
-    n_time_points = 7,
-    n_ind_per_cluster = 100,
-    theta = log(0.5),
-    d = 0.5,
-    tau = 0,
-    analysis_type = c("2S LM")
-  )
-  
-  sim %<>% run("one_simulation")
-  
-  summary(
-    sim_obj = sim,
-    bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
-  )
-  
-  print("")
-  print(difftime(Sys.time(), start_time))
   
 }
 ```
@@ -189,6 +126,7 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0, 0.5, 1.4),
     tau = 0,
+    data_type = c("normal", "binomial"),
     analysis_type = c("2S LM", "IG LM")
   )
   
@@ -199,8 +137,7 @@ if ( run_main ) {
     bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
   )
   
-  print("")
-  print(difftime(Sys.time(), start_time))
+  print(round(difftime(Sys.time(), start_time),2))
   
 }
 ```
@@ -221,6 +158,7 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0, 0.5, 1.4),
     tau = 0,
+    data_type = c("normal", "binomial"),
     analysis_type = c("2S LM", "IG LM")
   )
   
@@ -231,8 +169,7 @@ if ( run_main ) {
     bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
   )
   
-  print("")
-  print(difftime(Sys.time(), start_time))
+  print(round(difftime(Sys.time(), start_time),2))
   
 }
 ```
@@ -253,6 +190,7 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0, 0.5, 1.4),
     tau = 0,
+    data_type = c("normal", "binomial"),
     analysis_type = c("2S LM", "IG LM")
   )
   
@@ -263,8 +201,7 @@ if ( run_main ) {
     bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
   )
   
-  print("")
-  print(difftime(Sys.time(), start_time))
+  print(round(difftime(Sys.time(), start_time),2))
   
 }
 ```
@@ -285,6 +222,7 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0.5, 1.4),
     tau = 0,
+    data_type = c("normal", "binomial"),
     analysis_type = c("2S LM")
   )
   
@@ -295,8 +233,7 @@ if ( run_main ) {
     bias = list(name="bias_d", truth="d", estimate="d_hat")
   )
   
-  print("")
-  print(difftime(Sys.time(), start_time))
+  print(round(difftime(Sys.time(), start_time),2))
   
 }
 ```
@@ -317,6 +254,7 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0.5, 1.4),
     tau = 0,
+    data_type = c("normal", "binomial"),
     analysis_type = c("2S LM")
   )
   
@@ -327,8 +265,7 @@ if ( run_main ) {
     bias = list(name="bias_d", truth="d", estimate="d_hat")
   )
   
-  print("")
-  print(difftime(Sys.time(), start_time))
+  print(round(difftime(Sys.time(), start_time),2))
   
 }
 ```
@@ -349,6 +286,7 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0.5, 1.4),
     tau = 0,
+    data_type = c("normal", "binomial"),
     analysis_type = c("2S LM")
   )
   
@@ -359,8 +297,45 @@ if ( run_main ) {
     bias = list(name="bias_d", truth="d", estimate="d_hat")
   )
   
-  print("")
-  print(difftime(Sys.time(), start_time))
+  print(round(difftime(Sys.time(), start_time),2))
+  
+}
+```
+
+
+
+# COVERAGE: Investigate coverage issue
+```{r}
+if ( run_coverage ) {
+  
+  start_time <- Sys.time()
+  
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = c(12,48),
+    n_time_points = 7,
+    n_ind_per_cluster = c(20,100),
+    theta = log(0.5),
+    d = c(0,0.5,1.4),
+    tau = c(0,0.04,0.25),
+    data_type = c("normal", "binomial"),
+    analysis_type = c("2S LM", "2S GEE EX", "2S GEE ID",
+                      "2S LMM ML", "2S LMM REML")
+  )
+  
+  sim %<>% run("one_simulation")
+  
+  summary(
+    sim_obj = sim,
+    coverage = list(
+      name = "cov_theta",
+      truth = "theta",
+      estimate = "theta_hat",
+      se = "se_theta_hat"
+    )
+  )
+  
+  print(round(difftime(Sys.time(), start_time),2))
   
 }
 ```
@@ -369,7 +344,7 @@ if ( run_main ) {
 
 # !!!!! TESTING: Two-stage spline
 ```{r}
-if ( run_main ) {
+if ( run_testing ) {
   
   start_time <- Sys.time()
   
@@ -392,7 +367,7 @@ if ( run_main ) {
   )
   
   print("")
-  print(difftime(Sys.time(), start_time))
+  print(round(difftime(Sys.time(), start_time),2))
   
 }
 ```
@@ -507,61 +482,69 @@ if ( run_misc ) {
 ```
 
 
-# ARCHIVE: Old code (to recycle) from run_analysis
+
+# ARCHIVE: Old code (to recycle later)
 ```{r}
 if ( FALSE ) {
   
-  # summary(
-  #   sim_obj = sim,
-  #   sd = list(
-  #     list(name="sd_theta_hat", x="theta_hat"),
-  #     list(name="sd_d_hat", x="d_hat")
-  #   ),
-  #   bias = list(
-  #     list(name="bias_theta", truth="theta", estimate="theta_hat"),
-  #     list(name="bias_d", truth="d", estimate="d_hat")
-  #   ),
-  #   coverage = list(
-  #     list(name="cov_theta", truth="theta",
-  #          estimate="theta_hat", se="se_theta_hat"),
-  #     list(name="cov_d", truth="d", estimate="d_hat", se="se_d_hat")
-  #   )
-  # )
+  print(paste("Number of available cores:", parallel::detectCores()))
+  print(paste("SLURM_ARRAY_JOB_ID:", Sys.getenv("SLURM_ARRAY_JOB_ID")))
+  print(paste("SLURM_CPUS_ON_NODE:", Sys.getenv("SLURM_CPUS_ON_NODE")))
+  print(paste("SLURM_NODELIST:", Sys.getenv("SLURM_NODELIST")))
+  print(paste("SLURM_NNODES:", Sys.getenv("SLURM_NNODES")))
+  print(paste("SLURM_NTASKS:", Sys.getenv("SLURM_NTASKS")))
+  
+  summary(
+    sim_obj = sim,
+    sd = list(
+      list(name="sd_theta_hat", x="theta_hat"),
+      list(name="sd_d_hat", x="d_hat")
+    ),
+    bias = list(
+      list(name="bias_theta", truth="theta", estimate="theta_hat"),
+      list(name="bias_d", truth="d", estimate="d_hat")
+    ),
+    coverage = list(
+      list(name="cov_theta", truth="theta",
+           estimate="theta_hat", se="se_theta_hat"),
+      list(name="cov_d", truth="d", estimate="d_hat", se="se_d_hat")
+    )
+  )
   
   # Plots
-  # plot_sw_design(data_1)
-  # plot_outcome(data_1, type="no error")
-  # plot_outcome(data_1, type="realized")
+  plot_sw_design(data_1)
+  plot_outcome(data_1, type="no error")
+  plot_outcome(data_1, type="realized")
   
-  # # Binomial GLM
-  # model_binomial_gee1 <- geeglm(
-  #   y ~ factor(j) + factor(x_ij),
-  #   data = data$data,
-  #   id = i,
-  #   family = binomial(link = "log"),
-  #   corstr = "exchangeable"
-  # )
-  # summary(model_binomial_gee1)
-  # system.time(
-  #   model_binomial_gee2 <- geeglm(
-  #     y ~ factor(j) + factor(l),
-  #     data = data$data,
-  #     id = i,
-  #     family = binomial(link = "log"),
-  #     corstr = "exchangeable"
-  #   )
-  # )
-  # summary(model_gee2)
+  # Binomial GLM
+  model_binomial_gee1 <- geeglm(
+    y ~ factor(j) + factor(x_ij),
+    data = data$data,
+    id = i,
+    family = binomial(link = "log"),
+    corstr = "exchangeable"
+  )
+  summary(model_binomial_gee1)
+  system.time(
+    model_binomial_gee2 <- geeglm(
+      y ~ factor(j) + factor(l),
+      data = data$data,
+      id = i,
+      family = binomial(link = "log"),
+      corstr = "exchangeable"
+    )
+  )
+  summary(model_gee2)
   
-  # # Only estimate theta (step function)
-  # model_normal_gee1 <- geeglm(
-  #   y ~ factor(j) + factor(x_ij),
-  #   data = data$data,
-  #   id = i,
-  #   family = "gaussian",
-  #   corstr = "exchangeable"
-  # )
-  # summary(model_normal_gee1)
+  # Only estimate theta (step function)
+  model_normal_gee1 <- geeglm(
+    y ~ factor(j) + factor(x_ij),
+    data = data$data,
+    id = i,
+    family = "gaussian",
+    corstr = "exchangeable"
+  )
+  summary(model_normal_gee1)
   
 }
 ```
