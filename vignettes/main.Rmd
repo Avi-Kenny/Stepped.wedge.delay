@@ -52,16 +52,16 @@ if ( run_setup ) {
   # Set up and configure simba object
   sim <- new_sim()
   sim %<>% set_config(
+    # num_sim = 100,
     num_sim = 1000,
-    # num_sim = 2, # !!!!! Testing
     parallel = "outer",
     # parallel = "none",
-    packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4", 
+    packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
                  "z.stepped.wedge")
   )
   sim %<>% add_constants(
-    alpha = log(0.1),
-    sigma = 0.3 # Same variance as a Bern(0.1) rv
+    alpha = log(0.1)
+    # sigma = 0.3 # Same variance as a Bern(0.1) rv
   )
   
   # Negative log lik corresponding to two-stage dissertation approach
@@ -126,16 +126,18 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0, 0.5, 1.4),
     tau = 0,
-    data_type = c("normal", "binomial"),
+    sigma = 0.3,
+    data_type = "binomial",
+    # data_type = c("normal", "binomial"),
     analysis_type = c("2S LM", "IG LM")
   )
   
   sim %<>% run("one_simulation")
   
-  summary(
+  print(summary(
     sim_obj = sim,
     bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
-  )
+  ))
   
   print(round(difftime(Sys.time(), start_time),2))
   
@@ -158,16 +160,18 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0, 0.5, 1.4),
     tau = 0,
-    data_type = c("normal", "binomial"),
+    sigma = 0.3,
+    data_type = "binomial",
+    # data_type = c("normal", "binomial"),
     analysis_type = c("2S LM", "IG LM")
   )
   
   sim %<>% run("one_simulation")
   
-  summary(
+  print(summary(
     sim_obj = sim,
     bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
-  )
+  ))
   
   print(round(difftime(Sys.time(), start_time),2))
   
@@ -190,16 +194,18 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0, 0.5, 1.4),
     tau = 0,
-    data_type = c("normal", "binomial"),
+    sigma = 0.3,
+    data_type = "binomial",
+    # data_type = c("normal", "binomial"),
     analysis_type = c("2S LM", "IG LM")
   )
   
   sim %<>% run("one_simulation")
   
-  summary(
+  print(summary(
     sim_obj = sim,
     bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
-  )
+  ))
   
   print(round(difftime(Sys.time(), start_time),2))
   
@@ -222,16 +228,18 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0.5, 1.4),
     tau = 0,
-    data_type = c("normal", "binomial"),
+    sigma = 0.3,
+    data_type = "binomial",
+    # data_type = c("normal", "binomial"),
     analysis_type = c("2S LM")
   )
   
   sim %<>% run("one_simulation")
   
-  summary(
+  print(summary(
     sim_obj = sim,
     bias = list(name="bias_d", truth="d", estimate="d_hat")
-  )
+  ))
   
   print(round(difftime(Sys.time(), start_time),2))
   
@@ -254,16 +262,18 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0.5, 1.4),
     tau = 0,
-    data_type = c("normal", "binomial"),
+    sigma = 0.3,
+    data_type = "binomial",
+    # data_type = c("normal", "binomial"),
     analysis_type = c("2S LM")
   )
   
   sim %<>% run("one_simulation")
   
-  summary(
+  print(summary(
     sim_obj = sim,
     bias = list(name="bias_d", truth="d", estimate="d_hat")
-  )
+  ))
   
   print(round(difftime(Sys.time(), start_time),2))
   
@@ -286,16 +296,18 @@ if ( run_main ) {
     theta = log(0.5),
     d = c(0.5, 1.4),
     tau = 0,
-    data_type = c("normal", "binomial"),
+    sigma = 0.3,
+    data_type = "binomial",
+    # data_type = c("normal", "binomial"),
     analysis_type = c("2S LM")
   )
   
   sim %<>% run("one_simulation")
   
-  summary(
+  print(summary(
     sim_obj = sim,
     bias = list(name="bias_d", truth="d", estimate="d_hat")
-  )
+  ))
   
   print(round(difftime(Sys.time(), start_time),2))
   
@@ -304,37 +316,134 @@ if ( run_main ) {
 
 
 
-# COVERAGE: Investigate coverage issue
+# COVERAGE: Investigate coverage issue (no GEE)
 ```{r}
+# if ( FALSE ) {
 if ( run_coverage ) {
   
   start_time <- Sys.time()
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = seq(12, 120, 24),
+    # n_clusters = c(12,48),
+    n_time_points = 7,
+    n_ind_per_cluster = seq(20, 100, 20),
+    # n_ind_per_cluster = c(20,100),
+    theta = log(0.5),
+    d = 1.4,
+    # d = c(0,1.4),
+    tau = 0,
+    # tau = c(0,0.25),
+    sigma = 3,
+    # sigma = 0.3,
+    data_type = "binomial",
+    # data_type = c("normal", "binomial"),
+    analysis_type = "2S LM"
+    # analysis_type = c("2S LM", "2S LMM REML")
+  )
+
+  sim %<>% run("one_simulation")
+
+  print(summary(
+    sim_obj = sim,
+    coverage = list(
+      name = "cov_theta",
+      truth = "theta",
+      estimate = "theta_hat",
+      se = "se_theta_hat",
+      na.rm = TRUE
+    )
+  ))
   
+  saveRDS(sim, file=paste("sim",Sys.time()))
+  # sim <- readRDS("../sim 2020-05-06 02_46_27")
+  print(round(difftime(Sys.time(), start_time),2))
+  
+}
+```
+
+
+
+# COVERAGE: Investigate coverage issue (GEE)
+```{r}
+if ( FALSE ) {
+# if ( run_coverage ) {
+  
+  start_time <- Sys.time()
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 24,
+    n_time_points = 7,
+    n_ind_per_cluster = 50,
+    theta = log(0.5),
+    d = 1.4,
+    tau = c(0,0.25),
+    sigma = 0.3,
+    data_type = c("normal", "binomial"),
+    analysis_type = c("2S GEE EX", "2S GEE ID")
+  )
+
+  sim %<>% run("one_simulation")
+
+  print(summary(
+    sim_obj = sim,
+    coverage = list(
+      name = "cov_theta",
+      truth = "theta",
+      estimate = "theta_hat",
+      se = "se_theta_hat",
+      na.rm = TRUE
+    )
+  ))
+
+  saveRDS(sim, file=paste("sim",Sys.time()))
+  # sim <- readRDS("../sim 2020-05-06 03_41_40")
+  print(round(difftime(Sys.time(), start_time),2))
+  
+}
+```
+
+
+
+# COVERAGE: Investigate coverage issue (REML vs. ML)
+```{r}
+if ( FALSE ) {
+# if ( run_coverage ) {
+  
+  start_time <- Sys.time()
+
   # Set levels
   sim %<>% set_levels(
     n_clusters = c(12,48),
     n_time_points = 7,
     n_ind_per_cluster = c(20,100),
     theta = log(0.5),
-    d = c(0,0.5,1.4),
-    tau = c(0,0.04,0.25),
-    data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM", "2S GEE EX", "2S GEE ID",
-                      "2S LMM ML", "2S LMM REML")
+    d = 1.4,
+    tau = 0.25,
+    # tau = c(0,0.25),
+    sigma = 0.3,
+    data_type = "normal",
+    analysis_type = "2S LMM REML"
+    # analysis_type = c("2S LMM REML", "2S LMM ML")
   )
-  
+
   sim %<>% run("one_simulation")
-  
-  summary(
+
+  print(summary(
     sim_obj = sim,
     coverage = list(
       name = "cov_theta",
       truth = "theta",
       estimate = "theta_hat",
-      se = "se_theta_hat"
+      se = "se_theta_hat",
+      na.rm = TRUE
     )
-  )
-  
+  ))
+
+  saveRDS(sim, file=paste("sim",Sys.time()))
+  # sim <- readRDS("../sim 2020-05-06 10_15_49")
   print(round(difftime(Sys.time(), start_time),2))
   
 }

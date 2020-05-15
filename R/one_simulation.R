@@ -16,7 +16,7 @@ one_simulation <- function(L,C) {
     n_time_points = L$n_time_points,
     n_ind_per_cluster = L$n_ind_per_cluster,
     data_type = L$data_type,
-    sigma = C$sigma
+    sigma = L$sigma
   )
 
 # print("check 1")

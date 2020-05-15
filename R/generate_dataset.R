@@ -85,11 +85,11 @@ generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
       } else if (data_type=="binomial") {
         if (y_ij>1) {
           y_ij <- 1
-          warning("Probability y_ij was >1 so it was set to 1")
+          # warning("Probability y_ij was >1 so it was set to 1")
         }
         if (y_ij<0) {
           y_ij <- 0
-          warning("Probability y_ij was <0 so it was set to 0")
+          # warning("Probability y_ij was <0 so it was set to 0")
         }
         y <- rbinom(n=k, size=1, prob=y_ij)
         # !!!!! This table is too bulky

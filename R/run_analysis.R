@@ -91,8 +91,8 @@ run_analysis <- function(data, analysis_type, data_type, L, C) {
       reml <- ifelse(analysis_type=="2S LMM REML", TRUE, FALSE)
 
       if (analysis_type=="2S LMM REML" && data_type=="binomial") {
-        warning(paste("ML being used (rather than REML) since REML is not",
-                      "well-defined for GLMMs"))
+        # warning(paste("ML being used (rather than REML) since REML is not",
+        #               "well-defined for GLMMs"))
       }
 
       if (data_type=="normal") {
