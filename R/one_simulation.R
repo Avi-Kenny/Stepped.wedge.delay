@@ -17,11 +17,16 @@ one_simulation <- function(L,C) {
     n_ind_per_cluster = L$n_ind_per_cluster,
     data_type = L$data_type,
     sigma = L$sigma
+    # alpha = log(0.1),
+    # tau = 0.25, # 0
+    # theta = log(0.5),
+    # d = 1.4,
+    # n_clusters = 12,
+    # n_time_points = 7,
+    # n_ind_per_cluster = 20,
+    # data_type = "binomial",
+    # sigma = 3
   )
-
-# print("check 1")
-# print('exists("neg_log_lik")')
-# print(exists("neg_log_lik"))
 
   results <- run_analysis(
     data = data,

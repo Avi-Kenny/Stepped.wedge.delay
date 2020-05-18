@@ -10,7 +10,7 @@
 #'     stage; REML), "PP SPL" (the "Purple point spline" method), "FX SPL" (the
 #'     "fixed X-coordinate" spline method), "IG LM" (simple linear model that
 #'     ignores the time-lag effect), "IG GEE" (GEE that ignores the time-lag
-#'     effect)
+#'     effect), "2S HL" (two-stage using H-likelihood in first stage)
 #' @param L Passed via simba; list of simulation levels
 #' @param C Passed via simba; list of simulation constants
 #' @return TO DO
@@ -18,16 +18,12 @@
 # FN: generate_dataset
 run_analysis <- function(data, analysis_type, data_type, L, C) {
 
-# print("check 2")
-# print('exists("neg_log_lik")')
-# print(exists("neg_log_lik"))
-
   if (!(data_type %in% c("normal", "binomial"))) {
     stop ("`data_type` must be either 'normal' or 'binomial'")
   }
 
   if (analysis_type %in% c("2S LM", "2S GEE EX", "2S GEE ID", "2S LMM ML",
-                           "2S LMM REML")) {
+                           "2S LMM REML", "2S HL")) {
 
     if (analysis_type=="2S LM") {
 
@@ -113,6 +109,53 @@ run_analysis <- function(data, analysis_type, data_type, L, C) {
       coeff_names <- names(summary(model)$coefficients[,1])
       theta_l_hat <- as.numeric(summary(model)$coefficients[,1])
       sigma_l_hat <- vcov(model)
+
+    }
+
+    if (analysis_type=="2S HL") {
+
+      # !!!!!
+
+      # Run linear model
+      if (data_type=="normal") {
+
+        model <- glmmTMB(
+          y ~ factor(j) + factor(l) + (1|i),
+          data = data$data
+        )
+
+      } else if (data_type=="binomial") {
+
+        # # !!!!! Delete: for comparisons
+        # model2 <- glmer(
+        #   y ~ factor(j) + factor(l) + (1|i),
+        #   data = data$data,
+        #   family = binomial(link="log")
+        # )
+        # coeff_names2 <- names(summary(model2)$coefficients[,1])
+        # theta_l_hat2 <- as.numeric(summary(model2)$coefficients[,1])
+        # sigma_l_hat2 <- vcov(model2)
+        # diag(sigma_l_hat2)
+        # # !!!!! Delete: for comparisons
+
+        model <- glmmTMB(
+          y ~ factor(j) + factor(l) + (1|i),
+          data = data$data,
+          family = binomial(link="log"),
+          start = list(beta=rep(-1,2*L$n_time_points-1)) # Avoids a gradient error
+        )
+
+        # !!!!!
+        # as.numeric(diag(sigma_l_hat))
+        # as.numeric(diag(sigma_l_hat2))
+        # as.numeric(diag(sigma_l_hat))/as.numeric(diag(sigma_l_hat2))
+
+      }
+
+      # Extract coefficients and SEs
+      coeff_names <- dimnames(summary(model)$coefficients$cond)[[1]]
+      theta_l_hat <- as.numeric(summary(model)$coefficients$cond[,1])
+      sigma_l_hat <- unname(vcov(model)[[1]])
 
     }
 
