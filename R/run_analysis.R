@@ -7,12 +7,12 @@
 #'     correlation), "2S GEE ID" (two-stage using GEE in first stage;
 #'     independence correlation), "2S LMM ML" (two-stage using LMM in first
 #'     stage; maximum likelihood), "2S LMM REML" (two-stage using LMM in first
-#'     stage; REML), "2S SPL" (two-stage using spline in second stage) "SPL 1K"
-#'     (single stage linear spline with a single knot), "SPL 2K" (single stage
-#'     linear spline with two knots), "IG LM" (simple linear model that ignores
-#'     the time-lag effect), "IG GEE" (GEE that ignores the time-lag effect),
-#'     "2S HL" (two-stage using H-likelihood in first stage), "Staircase" (new
-#'     one-stage method using inequality constraints)
+#'     stage; REML), "SPL 1K" (single stage linear spline with a single knot),
+#'     "SPL 2K" (single stage linear spline with two knots), "IG LM" (simple
+#'     linear model that ignores the time-lag effect), "IG GEE" (GEE that
+#'     ignores the time-lag effect), "2S HL" (two-stage using H-likelihood in
+#'     first stage), "Staircase" (new one-stage method using inequality
+#'     constraints)
 #' @param L Passed via simba; list of simulation levels
 #' @param C Passed via simba; list of simulation constants
 #' @return TO DO
@@ -231,80 +231,6 @@ run_analysis <- function(data, analysis_type, data_type, L, C) {
       theta_hat = s[nrow(s),"Estimate"],
       se_d_hat = NA,
       se_theta_hat = s[nrow(s),"Std. Error"]
-    ))
-
-  }
-
-  if (analysis_type == "2S SPL") {
-
-    # !!!!! Next three blocks are identical with "2S LM" method above
-
-    # Run linear model
-    if (data_type=="normal") {
-      model <- lm(
-        y ~ factor(j) + factor(l),
-        data = data$data
-      )
-    } else if (data_type=="binomial") {
-      model <- glm(
-        y ~ factor(j) + factor(l),
-        data = data$data,
-        family = binomial(link="log")
-      )
-    }
-
-    # Extract coefficients and SEs
-    coeff_names <- names(model$coefficients)
-    theta_l_hat <- as.numeric(model$coefficients)
-    sigma_l_hat <- vcov(model)
-
-    # Truncate theta_l_hat and sigma_l_hat
-    indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
-    coeff_names <- coeff_names[indices]
-    theta_l_hat <- theta_l_hat[indices]
-    sigma_l_hat <- sigma_l_hat[indices,indices]
-
-    # Generate ML estimates of theta, p_x, and p_y
-    nll <- function(par) {
-      return (
-        neg_log_lik_spl(
-          theta = par[1],
-          p_x = par[2],
-          p_y = par[3],
-          J = L$n_time_points,
-          theta_l_hat = theta_l_hat,
-          sigma_l_hat = sigma_l_hat
-        )
-      )
-    }
-    opt <- optim(par=c(theta=-0.1, p_x=2, p_y=0.5), fn=nll)
-    theta_hat <- opt$par[["theta"]]
-    p_x_hat <- opt$par[["p_x"]]
-    p_y_hat <- opt$par[["p_y"]]
-    h <- optimHess(par=c(theta_hat, p_x_hat, p_y_hat), fn=nll)
-
-    # Use hessian to estimate SEs and extract standard errors
-    # Note: tryCatch block necessary because sometimes estimated variances are <0
-    se_theta_hat <- NA
-    se_p_x_hat <- NA
-    se_p_y_hat <- NA
-    tryCatch(
-      expr = {
-        se_theta_hat <- sqrt(solve(h)[1,1])
-        se_p_x_hat <- sqrt(solve(h)[2,2])
-        se_p_y_hat <- sqrt(solve(h)[3,3])
-      },
-      error = function(cond) {}, # !!!!! log error
-      warning = function(cond) {} # !!!!! log error
-    )
-
-    return (list(
-      p_x_hat = p_x_hat,
-      p_y_hat = p_y_hat,
-      theta_hat = theta_hat,
-      se_p_x_hat = se_p_x_hat,
-      se_p_y_hat = se_p_y_hat,
-      se_theta_hat = se_theta_hat
     ))
 
   }
