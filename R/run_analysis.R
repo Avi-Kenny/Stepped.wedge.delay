@@ -116,8 +116,6 @@ run_analysis <- function(data, analysis_type, data_type, L, C) {
 
     if (analysis_type=="2S HL") {
 
-      # !!!!!
-
       # Run linear model
       if (data_type=="normal") {
 
@@ -235,6 +233,63 @@ run_analysis <- function(data, analysis_type, data_type, L, C) {
 
   }
 
+  if (analysis_type=="SPL 1K") {
+
+    # Add spline covariates to dataset
+    # !!!!! Currently specific to the case where J=7
+    df <- data$data %>% mutate(
+      s1 = pmax(0,l), # Equal to l
+      s2 = pmax(0,l-3)
+    )
+
+    # Run linear model
+    # !!!!! Change this to GLMM
+    if (data_type=="normal") {
+
+      model <- lm(
+        y ~ factor(j) + s1 + s2,
+        data = df
+      )
+
+    } else if (data_type=="binomial") {
+
+      model <- glm(
+        y ~ factor(j) + s1 + s2,
+        data = df,
+        family = binomial(link="log")
+      )
+
+    }
+
+    # Extract coefficients and SEs
+    coeff_names <- names(model$coefficients)
+    s_hat <- as.numeric(model$coefficients)
+    sigma_s_hat <- vcov(model)
+
+    # Truncate s_hat and sigma_s_hat
+    indices <- c((length(coeff_names)-1):length(coeff_names))
+    coeff_names <- coeff_names[indices]
+    s_hat <- s_hat[indices]
+    sigma_s_hat <- sigma_s_hat[indices,indices]
+    sigma_s_hat <- as.matrix(sigma_s_hat)
+
+    # Calculate estimators
+    theta_hat <- (6*s_hat[1]) + (3*s_hat[2])
+    se_theta_hat <- sqrt(
+      36 * sigma_s_hat[1,1] +
+      9 * sigma_s_hat[1,2] +
+      36 * sigma_s_hat[2,2]
+    )
+
+    return (list(
+      d_hat = NA,
+      theta_hat = theta_hat,
+      se_d_hat = NA,
+      se_theta_hat = se_theta_hat
+    ))
+
+  }
+
   if (analysis_type %in% c("IG LM", "IG GEE")) {
 
     if (analysis_type=="IG LM") {
@@ -264,58 +319,6 @@ run_analysis <- function(data, analysis_type, data_type, L, C) {
       # !!!!! TO DO
 
     }
-
-    return (list(
-      d_hat = NA,
-      theta_hat = theta_hat,
-      se_d_hat = NA,
-      se_theta_hat = se_theta_hat
-    ))
-
-  }
-
-  if (analysis_type=="FX SPL") {
-
-    # !!!!! Unfinished
-
-    # Generate ML estimates of theta and d
-    nll <- function(par) {
-      return (
-        -1 * log_lik_spline(
-          sigma_v = par[1],
-          sigma_e = par[2],
-          alpha = par[3],
-          beta_1 = par[4],
-          beta_2 = par[5],
-          beta_3 = par[6],
-          beta_4 = par[7],
-          beta_5 = par[8],
-          theta = par[9],
-          p_x = par[10],
-          p_y = par[11],
-          g_x = 5,
-          data = data
-        )
-      )
-    }
-    opt <- optim(
-      par = c(
-        sigma_v = 0.01,
-        sigma_e = 0.01,
-        alpha = 1,
-        beta_1 = 0.2,
-        beta_2 = 0.2,
-        beta_3 = 0.2,
-        beta_4 = 0.2,
-        beta_5 = 0.2,
-        theta = -0.1,
-        p_x = 2,
-        p_y = 0.5
-      ),
-      fn = nll
-    )
-    theta_hat <- opt$par[["theta"]]
-    print(theta_hat)
 
     return (list(
       d_hat = NA,

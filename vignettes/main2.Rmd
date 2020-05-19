@@ -41,7 +41,8 @@ run_setup <- TRUE
 run_main <- FALSE
 run_coverage <- FALSE
 run_misc <- FALSE
-run_testing_staircase <- TRUE
+run_testing_staircase <- FALSE
+run_testing_1KSPL <- TRUE
 run_testing <- FALSE
 
 ```
@@ -511,6 +512,48 @@ if ( run_testing_staircase ) {
     sigma = 3,
     data_type = c("normal", "binomial"),
     analysis_type = c("2S LM", "Staircase")
+  )
+
+  sim %<>% run("one_simulation")
+
+  print(summary(
+    sim_obj = sim,
+    bias = list(name="bias_theta", truth="theta", estimate="theta_hat"),
+    coverage = list(
+      name = "cov_theta",
+      truth = "theta",
+      estimate = "theta_hat",
+      se = "se_theta_hat",
+      na.rm = TRUE
+    )
+  ))
+  
+  saveRDS(sim, file=paste("sim",Sys.time()))
+  # sim <- readRDS("../sim 2020-05-18 10_21_46")
+  print(round(difftime(Sys.time(), start_time),2))
+  
+}
+```
+
+
+
+# TESTING: Spline (1 knot)
+```{r}
+if ( run_testing_1KSPL ) {
+  
+  start_time <- Sys.time()
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = c(12,48),
+    n_time_points = 7,
+    n_ind_per_cluster = c(20,100),
+    theta = log(0.5),
+    d = 1.4,
+    tau = 0,
+    sigma = 3,
+    data_type = c("normal", "binomial"),
+    analysis_type = c("2S LM", "SPL 1K")
   )
 
   sim %<>% run("one_simulation")
