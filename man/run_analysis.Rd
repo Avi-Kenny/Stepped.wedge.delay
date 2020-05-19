@@ -18,7 +18,7 @@ stage; maximum likelihood), "2S LMM REML" (two-stage using LMM in first
 stage; REML), "PP SPL" (the "Purple point spline" method), "FX SPL" (the
 "fixed X-coordinate" spline method), "IG LM" (simple linear model that
 ignores the time-lag effect), "IG GEE" (GEE that ignores the time-lag
-effect)}
+effect), "2S HL" (two-stage using H-likelihood in first stage)}
 
 \item{L}{Passed via simba; list of simulation levels}
 

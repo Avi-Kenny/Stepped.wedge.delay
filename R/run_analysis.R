@@ -7,10 +7,12 @@
 #'     correlation), "2S GEE ID" (two-stage using GEE in first stage;
 #'     independence correlation), "2S LMM ML" (two-stage using LMM in first
 #'     stage; maximum likelihood), "2S LMM REML" (two-stage using LMM in first
-#'     stage; REML), "PP SPL" (the "Purple point spline" method), "FX SPL" (the
-#'     "fixed X-coordinate" spline method), "IG LM" (simple linear model that
-#'     ignores the time-lag effect), "IG GEE" (GEE that ignores the time-lag
-#'     effect), "2S HL" (two-stage using H-likelihood in first stage)
+#'     stage; REML), "2S SPL" (two-stage using spline in second stage) "SPL 1K"
+#'     (single stage linear spline with a single knot), "SPL 2K" (single stage
+#'     linear spline with two knots), "IG LM" (simple linear model that ignores
+#'     the time-lag effect), "IG GEE" (GEE that ignores the time-lag effect),
+#'     "2S HL" (two-stage using H-likelihood in first stage), "Staircase" (new
+#'     one-stage method using inequality constraints)
 #' @param L Passed via simba; list of simulation levels
 #' @param C Passed via simba; list of simulation constants
 #' @return TO DO
@@ -126,29 +128,14 @@ run_analysis <- function(data, analysis_type, data_type, L, C) {
 
       } else if (data_type=="binomial") {
 
-        # # !!!!! Delete: for comparisons
-        # model2 <- glmer(
-        #   y ~ factor(j) + factor(l) + (1|i),
-        #   data = data$data,
-        #   family = binomial(link="log")
-        # )
-        # coeff_names2 <- names(summary(model2)$coefficients[,1])
-        # theta_l_hat2 <- as.numeric(summary(model2)$coefficients[,1])
-        # sigma_l_hat2 <- vcov(model2)
-        # diag(sigma_l_hat2)
-        # # !!!!! Delete: for comparisons
-
         model <- glmmTMB(
           y ~ factor(j) + factor(l) + (1|i),
           data = data$data,
           family = binomial(link="log"),
+          REML = TRUE,
           start = list(beta=rep(-1,2*L$n_time_points-1)) # Avoids a gradient error
         )
-
-        # !!!!!
-        # as.numeric(diag(sigma_l_hat))
-        # as.numeric(diag(sigma_l_hat2))
-        # as.numeric(diag(sigma_l_hat))/as.numeric(diag(sigma_l_hat2))
+        # as.numeric(diag(sigma_l_hat))/as.numeric(diag(sigma_l_hat2)) # !!!!! Directly compare SE estimates with REML=FALSE
 
       }
 
@@ -201,6 +188,49 @@ run_analysis <- function(data, analysis_type, data_type, L, C) {
       theta_hat = theta_hat,
       se_d_hat = se_d_hat,
       se_theta_hat = se_theta_hat
+    ))
+
+  }
+
+  if (analysis_type=="Staircase") {
+
+    # Run linear model
+    if (data_type=="normal") {
+
+      model <- lm(
+        y ~ factor(j) + factor(l),
+        data = data$data
+      )
+
+    } else if (data_type=="binomial") {
+
+      model <- glm(
+        y ~ factor(j) + factor(l),
+        data = data$data,
+        family = binomial(link="log")
+      )
+
+    }
+
+    # !!!!! Currently hard-coded for num_times=7
+    res <- restriktor(
+      object = model,
+      constraints = rbind(
+        c(0,0,0,0,0,0,0,1,-1,0,0,0,0),
+        c(0,0,0,0,0,0,0,0,1,-1,0,0,0),
+        c(0,0,0,0,0,0,0,0,0,1,-1,0,0),
+        c(0,0,0,0,0,0,0,0,0,0,1,-1,0),
+        c(0,0,0,0,0,0,0,0,0,0,0,1,-1)
+      ),
+      rhs = c(0,0,0,0,0)
+    )
+    s <- summary(res)$coefficients
+
+    return (list(
+      d_hat = NA,
+      theta_hat = s[nrow(s),"Estimate"],
+      se_d_hat = NA,
+      se_theta_hat = s[nrow(s),"Std. Error"]
     ))
 
   }
@@ -308,19 +338,6 @@ run_analysis <- function(data, analysis_type, data_type, L, C) {
       # !!!!! TO DO
 
     }
-
-    return (list(
-      d_hat = NA,
-      theta_hat = theta_hat,
-      se_d_hat = NA,
-      se_theta_hat = se_theta_hat
-    ))
-
-  }
-
-  if (analysis_type=="PP SPL") {
-
-    # !!!!! TO DO
 
     return (list(
       d_hat = NA,
