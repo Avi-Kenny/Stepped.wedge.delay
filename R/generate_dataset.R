@@ -7,16 +7,20 @@
 #' @param n_clusters Total number of clusters
 #' @param n_time_points Total number of time points ("J")
 #' @param n_ind_per_cluster Total number of individuals per cluster (assumes
+#'     equal cluster sizes)
 #' @param data_type Type of outcome; options include "binomial" or "normal"
 #' @param sigma Standard deviation of the outcome (if data_type="normal"; omit
 #'     otherwise)
-#'     equal cluster sizes)
+#' @param delay_model Type of delay; options include "s-curve" or "spline";
+#'     corresponds to the relationship between l (time since intervention
+#'     introduced) and the relative effectiveness of the intervention effect
 #' @return A list containing the following: \cr
 #'     * `params`: a list of the parameters supplied in the function call \cr
 #'     * `data`: the resulting data frame
 #' @export
 generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
-                             n_ind_per_cluster, data_type, sigma=NA) {
+                             n_ind_per_cluster, data_type, sigma=NA,
+                             delay_model="s-curve") {
 
   # Generate data frame
   data <- data.frame(
@@ -44,9 +48,21 @@ generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
     ((1-j)/(n_time_points-1)) * 0.5
   })
 
-  # Create theta_ls (intervention effects) based on continuous function
+  # Create theta_ls (intervention effects) based on continuous fn "delay_model"
   theta_ls <- sapply(1:(n_time_points-1), function(l){
-    theta*(1-exp(-l/d))
+
+    if (delay_model == "s-curve") {
+      theta*(1-exp(-l/d))
+    } else if (delay_model == "spline") {
+      # !!!!! Allow more flexible range of effects
+      slope1 <- 1-d
+      slope2 <- d/5
+      theta * (slope1*l + (slope2 - slope1)*pmax(0,l-1))
+    } else {
+      stop ("`delay_model` must be either 's-curve' or 'spline'")
+    }
+
+
   })
 
   # Loop through clusters, time, and individuals
@@ -60,16 +76,12 @@ generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
       x_ij <- ifelse(j<crossover_times[i], 0, 1)
       l <- ifelse(j<crossover_times[i], 0, (j-crossover_times[i])+1)
 
-      # !!!!! this currently excludes the MVN error term
-      # !!!!! Check theta_l against estimates
-      x_il <- ifelse(l>0, 1, 0)
       theta_l <- ifelse(l>0, theta_ls[l], 0)
 
-      # !!!!! This is exp rather than expit; make sure it doesn't throw error
       if (data_type=="normal") {
-        y_ij <- alpha + beta_js[j] + theta_l*x_il + v_i
+        y_ij <- alpha + beta_js[j] + theta_l*x_ij + v_i
       } else if (data_type=="binomial") {
-        y_ij <- exp(alpha + beta_js[j] + theta_l*x_il + v_i)
+        y_ij <- exp(alpha + beta_js[j] + theta_l*x_ij + v_i)
       } else {
         stop ("`data_type` must be either 'normal' or 'binomial'")
       }

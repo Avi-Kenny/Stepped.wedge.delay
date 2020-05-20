@@ -16,7 +16,8 @@ one_simulation <- function(L,C) {
     n_time_points = L$n_time_points,
     n_ind_per_cluster = L$n_ind_per_cluster,
     data_type = L$data_type,
-    sigma = L$sigma
+    sigma = L$sigma,
+    delay_model = L$delay_model
     # alpha = log(0.1),
     # tau = 0, # 0.25
     # theta = log(0.5),
@@ -25,7 +26,8 @@ one_simulation <- function(L,C) {
     # n_time_points = 7,
     # n_ind_per_cluster = 20,
     # data_type = "binomial",
-    # sigma = 3
+    # sigma = 3,
+    # delay_model = "s-curve"
   )
 
   results <- run_analysis(

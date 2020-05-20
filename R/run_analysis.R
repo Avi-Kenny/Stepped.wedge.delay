@@ -236,10 +236,10 @@ run_analysis <- function(data, analysis_type, data_type, L, C) {
   if (analysis_type=="SPL 1K") {
 
     # Add spline covariates to dataset
-    # !!!!! Currently specific to the case where J=7
+    # !!!!! Currently specific to the case where J=7 and p_x=1
     df <- data$data %>% mutate(
       s1 = pmax(0,l), # Equal to l
-      s2 = pmax(0,l-3)
+      s2 = pmax(0,l-1)
     )
 
     # Run linear model
@@ -274,11 +274,11 @@ run_analysis <- function(data, analysis_type, data_type, L, C) {
     sigma_s_hat <- as.matrix(sigma_s_hat)
 
     # Calculate estimators
-    theta_hat <- (6*s_hat[1]) + (3*s_hat[2])
+    theta_hat <- (6*s_hat[1]) + (5*s_hat[2])
     se_theta_hat <- sqrt(
-      36 * sigma_s_hat[1,1] +
-      9 * sigma_s_hat[1,2] +
-      36 * sigma_s_hat[2,2]
+      (6^2) * sigma_s_hat[1,1] +
+      (5^2) * sigma_s_hat[2,2] +
+      (2*6*5) * sigma_s_hat[1,2]
     )
 
     return (list(

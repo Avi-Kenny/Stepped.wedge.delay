@@ -56,7 +56,7 @@ if ( run_setup ) {
   # Set up and configure simba object
   sim <- new_sim()
   sim %<>% set_config(
-    # num_sim = 10,
+    # num_sim = 100,
     num_sim = 1000,
     parallel = "outer",
     # parallel = "none",
@@ -132,7 +132,8 @@ if ( run_main ) {
     sigma = 0.3,
     data_type = "binomial",
     # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM", "IG LM")
+    analysis_type = c("2S LM", "IG LM"),
+    delay_model = "s-curve"
   )
   
   sim %<>% run("one_simulation")
@@ -166,7 +167,8 @@ if ( run_main ) {
     sigma = 0.3,
     data_type = "binomial",
     # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM", "IG LM")
+    analysis_type = c("2S LM", "IG LM"),
+    delay_model = "s-curve"
   )
   
   sim %<>% run("one_simulation")
@@ -200,7 +202,8 @@ if ( run_main ) {
     sigma = 0.3,
     data_type = "binomial",
     # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM", "IG LM")
+    analysis_type = c("2S LM", "IG LM"),
+    delay_model = "s-curve"
   )
   
   sim %<>% run("one_simulation")
@@ -234,7 +237,8 @@ if ( run_main ) {
     sigma = 0.3,
     data_type = "binomial",
     # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM")
+    analysis_type = c("2S LM"),
+    delay_model = "s-curve"
   )
   
   sim %<>% run("one_simulation")
@@ -268,7 +272,8 @@ if ( run_main ) {
     sigma = 0.3,
     data_type = "binomial",
     # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM")
+    analysis_type = c("2S LM"),
+    delay_model = "s-curve"
   )
   
   sim %<>% run("one_simulation")
@@ -302,7 +307,8 @@ if ( run_main ) {
     sigma = 0.3,
     data_type = "binomial",
     # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM")
+    analysis_type = c("2S LM"),
+    delay_model = "s-curve"
   )
   
   sim %<>% run("one_simulation")
@@ -342,8 +348,9 @@ if ( FALSE ) {
     # sigma = 0.3,
     data_type = "binomial",
     # data_type = c("normal", "binomial"),
-    analysis_type = "2S LM"
-    # analysis_type = c("2S LM", "2S LMM REML")
+    analysis_type = "2S LM",
+    # analysis_type = c("2S LM", "2S LMM REML"),
+    delay_model = "s-curve"
   )
 
   sim %<>% run("one_simulation")
@@ -385,7 +392,8 @@ if ( FALSE ) {
     tau = c(0,0.25),
     sigma = 0.3,
     data_type = c("normal", "binomial"),
-    analysis_type = c("2S GEE EX", "2S GEE ID")
+    analysis_type = c("2S GEE EX", "2S GEE ID"),
+    delay_model = "s-curve"
   )
 
   sim %<>% run("one_simulation")
@@ -428,8 +436,9 @@ if ( FALSE ) {
     # tau = c(0,0.25),
     sigma = 0.3,
     data_type = "normal",
-    analysis_type = "2S LMM REML"
-    # analysis_type = c("2S LMM REML", "2S LMM ML")
+    analysis_type = "2S LMM REML",
+    # analysis_type = c("2S LMM REML", "2S LMM ML"),
+    delay_model = "s-curve"
   )
 
   sim %<>% run("one_simulation")
@@ -470,7 +479,8 @@ if ( run_coverage ) {
     tau = 0,
     sigma = 3,
     data_type = "binomial",
-    analysis_type = c("2S LM", "2S HL")
+    analysis_type = c("2S LM", "2S HL"),
+    delay_model = "s-curve"
   )
 
   sim %<>% run("one_simulation")
@@ -511,7 +521,8 @@ if ( run_testing_staircase ) {
     tau = 0,
     sigma = 3,
     data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM", "Staircase")
+    analysis_type = c("2S LM", "Staircase"),
+    delay_model = "s-curve"
   )
 
   sim %<>% run("one_simulation")
@@ -542,24 +553,26 @@ if ( run_testing_staircase ) {
 if ( run_testing_1KSPL ) {
   
   start_time <- Sys.time()
-
+  
   # Set levels
   sim %<>% set_levels(
     n_clusters = c(12,48),
     n_time_points = 7,
     n_ind_per_cluster = c(20,100),
     theta = log(0.5),
-    d = 1.4,
+    d = c(0,1),
     tau = 0,
     sigma = 3,
     data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM", "SPL 1K")
+    analysis_type = "SPL 1K",
+    delay_model = "spline"
   )
 
   sim %<>% run("one_simulation")
 
   print(summary(
     sim_obj = sim,
+    means = list(all=TRUE, na.rm=TRUE),
     bias = list(name="bias_theta", truth="theta", estimate="theta_hat"),
     coverage = list(
       name = "cov_theta",
@@ -571,7 +584,7 @@ if ( run_testing_1KSPL ) {
   ))
   
   saveRDS(sim, file=paste("sim",Sys.time()))
-  # sim <- readRDS("../sim 2020-05-18 10_21_46")
+  # sim <- readRDS("../sim 2020-05-19 17_20_20")
   print(round(difftime(Sys.time(), start_time),2))
   
 }
@@ -593,7 +606,8 @@ if ( run_testing ) {
     theta = log(0.5),
     d = c(0, 0.5, 1.4),
     tau = 0,
-    analysis_type = c("2S SPL")
+    analysis_type = c("2S SPL"),
+    delay_model = "s-curve"
   )
   
   sim %<>% run("one_simulation")
@@ -690,29 +704,17 @@ if ( run_misc ) {
 ```{r}
 if ( run_misc ) {
   
-  ggplot(data.frame(x=c(0,8)), aes(x=x)) +
-    # stat_function(fun = function(x) {
-    #   return(ifelse(x>=2,1,0))
-    # }, aes(color="Step function")) +
-    # stat_function(fun = function(x) {
-    #   d = 1
-    #   I = ifelse(x>=1, 1, 0)
-    #   return(I * (1-exp(-(x-1)/d)))
-    # }, aes(color="Current function")) +
+  ggplot(data.frame(x=c(0,6)), aes(x=x)) +
     stat_function(fun = function(x) {
-      i1 = ifelse(x>=0 & x<2, 1, 0)
-      i2 = ifelse(x>=2 & x<5, 1, 0)
-      i3 = ifelse(x>=5, 1, 0)
-      return( i1*(0.4*x) + i2*((0.2/3)*x + (2/3)) + i3 )
+      return ( 0.7*x + (0.3/5 - 0.7)*pmax(0,x-1) )
     }) +
-    # }, aes(color="Linear spline")) +
-    geom_point(aes(x=5, y=1), colour="green") +
-    geom_point(aes(x=2, y=0.8), colour="purple") +
+    geom_point(aes(x=0, y=0)) +
+    geom_point(aes(x=6, y=1), colour="green") +
+    geom_point(aes(x=1, y=0.7), colour="purple") +
     labs(
-      title = "Linear spline model for R_ij",
-      # color = "Type",
-      y = "R_ij (% of treatment effect achieved)",
-      x = "Time (t_ij)"
+      title = "Linear spline model for R_il",
+      y = "R_il (% of treatment effect achieved)",
+      x = "Time since implementation (l_i)"
     )
     
 }
