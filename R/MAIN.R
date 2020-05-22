@@ -697,6 +697,148 @@ if ( run_misc ) {
 
 
 
+################################.
+##### MISC: Graphs for PPT #####
+################################.
+
+if ( run_misc ) {
+
+  # Plot 1
+  # Exported as 600w X 400h
+  ggplot(
+    data.frame(
+      x = c(1:6),
+      y = c(0,0,3,3,3,3),
+      state = c( rep("Control",2), rep("Treatment",4) )
+    ),
+    aes(x=x, y=y, color=state)
+  ) +
+    stat_function(
+      fun = function(x) { return(
+        ifelse(x<=2, 0, ifelse(x>=3, 3, 3*(x-2)^2))
+      )},
+      color="#333333"
+    ) +
+    geom_point(size=3) +
+    labs(
+      title = "Immediate effect",
+      y = "Treatment effect",
+      x = "Time (steps)",
+      color = "State"
+    )
+
+  # Plot 2
+  # Exported as 600w X 400h
+  ggplot(
+    data.frame(
+      x = c(1:6),
+      y = c(0,0,0.693,2.135,3,3),
+      state = c( rep("Control",2), rep("Treatment",4) )
+    ),
+    aes(x=x, y=y, color=state)
+  ) +
+    stat_function(
+      fun = function(x) { return(
+        ifelse(x<=2, 0, ifelse(x>=5, 3, 1.507543*(1+sin((x-2-(pi/2))))))
+      )},
+      color="#333333"
+    ) +
+    geom_point(size=3) +
+    labs(
+      title = "Lagged effect",
+      y = "Treatment effect",
+      x = "Time (steps)",
+      color = "State"
+    )
+
+  # Plot 3
+  # Exported as 600w X 400h
+  set.seed(17)
+  x = c(rep(3,32),rep(4,24),rep(5,16),rep(6,8))
+  y = c(
+    rnorm(n=32, mean=1.8, sd=0.3),
+    rnorm(n=24, mean=2.7, sd=0.3),
+    rnorm(n=16, mean=2.7, sd=0.3),
+    rnorm(n=8, mean=3.1, sd=0.3)
+  )
+  ggplot(
+    data.frame(x=x, y=y),
+    aes(x=x, y=y)
+  ) +
+    geom_point(size=2, alpha=0.2, shape=16) +
+    xlim(1,6) +
+    ylim(0,4) +
+    geom_point(
+      data = data.frame(
+        x = c(3,4,5,6),
+        y = c(1.8,2.7,2.7,3.1)
+      ),
+      color = "turquoise",
+      size = 3
+    ) +
+    labs(
+      title = "Lagged effect stepped wedge model",
+      y = "Treatment effect",
+      x = "Time (steps)",
+      color = "State"
+    )
+
+  # Plot 4
+  # Exported as 600w X 400h
+  ggplot(
+    data.frame(
+      x = c(3,4,5,6),
+      y = c(1.8,2.7,2.7,3.1)
+    ),
+    aes(x=x, y=y)
+  ) +
+    stat_function(
+      fun = function(x) { return(
+        ifelse(x<=2, 0, 3*(1-exp(-(x-2)/1)))
+      )},
+      color="#333333"
+    ) +
+    xlim(1,6) +
+    ylim(0,4) +
+    geom_point(color="turquoise", size=3) +
+    labs(
+      title = "Lagged effect stepped wedge model",
+      y = "Treatment effect",
+      x = "Time (steps)",
+      color = "State"
+    )
+
+  # Plot 5 new
+  # Exported as 600w X 400h
+  ggplot(
+    data.frame(x=x, y=y),
+    aes(x=x, y=y)
+  ) +
+    geom_point(size=2, alpha=0.2, shape=16) +
+    stat_function(
+      fun = function(x) { return(
+        ifelse(x<=2, 0, ifelse(x>=5, 2.9,
+                               2.1*(x-2) + (0.8/2 - 2.1)*pmax(0,(x-2)-1)
+        ))
+      )},
+      color="#333333"
+    ) +
+    xlim(1,6) +
+    ylim(0,4) +
+    geom_point(aes(x=2, y=0), colour="black", size=3) +
+    geom_point(aes(x=5, y=2.9), colour="green", size=3) +
+    geom_point(aes(x=3, y=2.1), colour="purple", size=3) +
+    labs(
+      title = "Lagged effect stepped wedge model",
+      y = "Treatment effect",
+      x = "Time (steps)",
+      color = "State"
+    )
+
+}
+
+
+
 ################################################.
 ##### ARCHIVE: Old code (to recycle later) #####
 ################################################.
