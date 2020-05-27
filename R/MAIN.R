@@ -68,12 +68,12 @@ if ( run_setup ) {
   # Set up and configure simba object
   sim <- new_sim()
   sim %<>% set_config(
-    num_sim = 100,
+    num_sim = 400,
     # num_sim = 1000,
     parallel = "none",
-    # parallel = "none",
     packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
                  "z.stepped.wedge", "glmmTMB", "restriktor")
+    # stop_at_error = TRUE
   )
   sim %<>% add_constants(
     alpha = log(0.1)
@@ -137,7 +137,8 @@ if (FALSE) {
 
   # Merge *.simba files
   sims <- list.files(
-    path = "../simba.out/simba.out",
+    path = "../simba.out",
+    # path = "../simba.out/simba.out",
     pattern = "*.simba",
     full.names = TRUE,
     recursive = FALSE
@@ -147,51 +148,48 @@ if (FALSE) {
     s <- readRDS(s)
     if (is.null(sim)) { sim <- s } else { sim <- merge(sim, s) }
   }
-  saveRDS(sim, file="../simba.out/sim_tab3.1.simba")
+  saveRDS(sim, file="../simba.out/sim_main_526.simba")
 
 }
 
 
 
-#########################################.
-##### MAIN: 5/26 set of simulations #####
-#########################################.
+#####################################################.
+##### MAIN: Comparing SPL(1,6) to 2S LMM (5/26) #####
+#####################################################.
 
 if ( run_main_526 ) {
 
   # Set levels
   sim %<>% set_levels(
     n_clusters = 48,
-    # n_clusters = c(12,48),
     n_time_points = 7,
-    n_ind_per_cluster = 100,
-    # n_ind_per_cluster = c(20,100),
+    n_ind_per_cluster = 50,
     theta = log(0.5),
-    tau = 0,
-    # tau = c(0,0.25), # !!!!! Is 0.25 the best level given the new sigma? Make this 50% of the variance
-    sigma = 0.3,
+    tau = c(0,0.25), # !!!!! Is 0.25 the best level given the new sigma? Make this 50% of the variance
+    sigma = 3,
     data_type = "normal",
     analysis = list(
-      "SPL" = list(type="SPL", params=list(knots=c(1,6)))
+      "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6))),
+      "2S LMM" = list(type="2S LMM", params=list(REML=TRUE))
     ),
-    # analysis = list(
-    #   "SPL 1" = list(...), # !!!!!
-    #   "SPL 2" = list(...), # !!!!!
-    #   "2S LMM" = list(...) # !!!!!
-    # ),
     delay_model = list(
-      "Spline model" = list(
+      "EXP (d=0)" = list(type="exp", params=list(d=0)),
+      "EXP (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
+      "SPL (k=1,6 s=0.8,0.04)" = list(
         type = "spline",
         params = list(knots=c(1,6),slopes=c(0.8,0.04))
+      ),
+      "SPL (k=2,4 s=0.1,0.4)" = list(
+        type = "spline",
+        params = list(knots=c(2,4),slopes=c(0.1,0.4))
+      ),
+      "SPL (k=2,4 s=0.4,0.1)" = list(
+        type = "spline",
+        params = list(knots=c(2,4),slopes=c(0.4,0.1))
       )
     )
-    # delay_model = list(
-    #   "Exp model" = list(type="exp", params=list(d=0)),
-    #   "Spline model" = list(
-    #     type = "spline",
-    #     params = list(knots=c(1,6),slopes=c(0.8,0.04))
-    #   )
-    # )
   )
 
   # Run simulation and save output
@@ -200,8 +198,9 @@ if ( run_main_526 ) {
 
   # Output results
   if (run_results) {
-    sim <- readRDS("../simba.out/sim_cov_gee.simba")
-    print(summary(
+
+    sim <- readRDS("../simba.out/sim_main_526.simba")
+    summ <- summary(
       sim_obj = sim,
       coverage = list(
         name = "cov_theta",
@@ -210,7 +209,8 @@ if ( run_main_526 ) {
         se = "se_theta_hat",
         na.rm = TRUE
       )
-    ))
+    )
+
   }
 
 }
