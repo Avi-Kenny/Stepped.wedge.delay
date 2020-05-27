@@ -60,8 +60,8 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
       return (
         theta * sw_spline(
           x = l,
-          knots = delay_model$knots,
-          slopes = delay_model$slopes
+          knots = delay_model$params$knots,
+          slopes = delay_model$params$slopes
         )
       )
 
