@@ -3,7 +3,6 @@
 #' @param alpha Log baseline prevalence
 #' @param tau Cluster random effect SD
 #' @param theta Treatment effect
-#' @param d Treatment lag rate parameter
 #' @param n_clusters Total number of clusters
 #' @param n_time_points Total number of time points ("J")
 #' @param n_ind_per_cluster Total number of individuals per cluster (assumes
@@ -11,16 +10,17 @@
 #' @param data_type Type of outcome; options include "binomial" or "normal"
 #' @param sigma Standard deviation of the outcome (if data_type="normal"; omit
 #'     otherwise)
-#' @param delay_model Type of delay; options include "s-curve" or "spline";
-#'     corresponds to the relationship between l (time since intervention
-#'     introduced) and the relative effectiveness of the intervention effect
+#' @param delay_model A list containing `type` ("exp" or "spline") and `params`
+#'     (a list). For type="exp", params=list(d=d). For type="spline",
+#'     params=list(knots=k, slopes=s), where k and s are vectors (see
+#'     documentation for sw_spline function)
 #' @return A list containing the following: \cr
 #'     * `params`: a list of the parameters supplied in the function call \cr
 #'     * `data`: the resulting data frame
 #' @export
-generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
+generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
                              n_ind_per_cluster, data_type, sigma=NA,
-                             delay_model="s-curve") {
+                             delay_model) {
 
   # Generate data frame
   data <- data.frame(
@@ -51,17 +51,21 @@ generate_dataset <- function(alpha, tau, theta, d, n_clusters, n_time_points,
   # Create theta_ls (intervention effects) based on continuous fn "delay_model"
   theta_ls <- sapply(1:(n_time_points-1), function(l){
 
-    if (delay_model == "s-curve") {
-      theta*(1-exp(-l/d))
-    } else if (delay_model == "spline") {
-      # !!!!! Allow more flexible range of effects
-      slope1 <- 1-d
-      slope2 <- d/5
-      theta * (slope1*l + (slope2 - slope1)*pmax(0,l-1))
-    } else {
-      stop ("`delay_model` must be either 's-curve' or 'spline'")
-    }
+    if (delay_model$type == "exp") {
 
+      return ( theta * (1-exp(-l/delay_model$params$d)) )
+
+    } else if (delay_model$type == "spline") {
+
+      return (
+        theta * sw_spline(
+          x = l,
+          knots = delay_model$knots,
+          slopes = delay_model$slopes
+        )
+      )
+
+    }
 
   })
 

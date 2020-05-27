@@ -8,37 +8,54 @@
 ##### Setup #####
 #################.
 
-# devtools::install_github(repo="Avi-Kenny/simba", dependencies=TRUE)
+# Set working directory
+if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
+  setwd("C:/Users/avike/OneDrive/Desktop/Avi/Biostats + Research/Research/Jim Hughes/Project - Stepped wedge/z.stepped.wedge/R")
+} else {
+  setwd("z.stepped.wedge/R")
+}
 
 # Load packages
-library(z.stepped.wedge)
-library(dplyr)
-library(magrittr)
-library(ggplot2)
-library(lme4)
-library(geepack)
-library(stringr)
-library(simba)
-library(parallel)
-library(glmmTMB, lib.loc=)
-library(restriktor)
+{
+  library(z.stepped.wedge)
+  library(dplyr)
+  library(magrittr)
+  library(ggplot2)
+  library(lme4)
+  library(geepack)
+  library(stringr)
+  library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
+  library(parallel)
+  library(glmmTMB, lib.loc=)
+  library(restriktor)
+}
 
 # Load functions
-source(generate_dataset.R)
-source(log_lik_spline.R)
-source(one_simulation.R)
-source(plot_outcome.R)
-source(plot_sw_design.R)
-source(run_analysis.R)
+{
+  source("generate_dataset.R")
+  source("log_lik_spline.R")
+  source("one_simulation.R")
+  source("plot_outcome.R")
+  source("plot_sw_design.R")
+  source("run_analysis.R")
+  source("sw_spline.R")
+}
 
 # Set code blocks to run
-run_setup <- TRUE
-run_main <- FALSE
-run_coverage <- FALSE
-run_misc <- FALSE
-run_testing_staircase <- FALSE
-run_testing_1KSPL <- TRUE
-run_testing <- FALSE
+{
+  run_setup <- TRUE
+  run_results <- FALSE
+  run_main_526 <- TRUE
+  run_tables3 <- FALSE
+  run_cov_nogee <- FALSE
+  run_cov_gee <- FALSE
+  run_cov_reml <- FALSE
+  run_cov_hlik <- FALSE
+  run_misc <- FALSE
+  run_testing_staircase <- FALSE
+  run_testing_1Kspl <- FALSE
+  run_testing_2Sspl <- FALSE
+}
 
 
 
@@ -51,9 +68,9 @@ if ( run_setup ) {
   # Set up and configure simba object
   sim <- new_sim()
   sim %<>% set_config(
-    # num_sim = 100,
-    num_sim = 1000,
-    parallel = "outer",
+    num_sim = 100,
+    # num_sim = 1000,
+    parallel = "none",
     # parallel = "none",
     packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
                  "z.stepped.wedge", "glmmTMB", "restriktor")
@@ -105,6 +122,97 @@ if ( run_setup ) {
   sim %<>% add_creator(generate_dataset)
   sim %<>% add_script(one_simulation)
 
+  # Create directory to store results
+  if (!file.exists("../simba.out")) { dir.create("../simba.out") }
+
+}
+
+
+
+###########################################################.
+##### Compile simulation results into a single object #####
+###########################################################.
+
+if (FALSE) {
+
+  # Merge *.simba files
+  sims <- list.files(
+    path = "../simba.out/simba.out",
+    pattern = "*.simba",
+    full.names = TRUE,
+    recursive = FALSE
+  )
+  sim <- NULL
+  for (s in sims) {
+    s <- readRDS(s)
+    if (is.null(sim)) { sim <- s } else { sim <- merge(sim, s) }
+  }
+  saveRDS(sim, file="../simba.out/sim_tab3.1.simba")
+
+}
+
+
+
+#########################################.
+##### MAIN: 5/26 set of simulations #####
+#########################################.
+
+if ( run_main_526 ) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 48,
+    # n_clusters = c(12,48),
+    n_time_points = 7,
+    n_ind_per_cluster = 100,
+    # n_ind_per_cluster = c(20,100),
+    theta = log(0.5),
+    tau = 0,
+    # tau = c(0,0.25), # !!!!! Is 0.25 the best level given the new sigma? Make this 50% of the variance
+    sigma = 0.3,
+    data_type = "normal",
+    analysis = list(
+      "SPL" = list(type="SPL", params=list(knots=c(1,6)))
+    ),
+    # analysis = list(
+    #   "SPL 1" = list(...), # !!!!!
+    #   "SPL 2" = list(...), # !!!!!
+    #   "2S LMM" = list(...) # !!!!!
+    # ),
+    delay_model = list(
+      "Spline model" = list(
+        type = "spline",
+        params = list(knots=c(1,6),slopes=c(0.8,0.04))
+      )
+    )
+    # delay_model = list(
+    #   "Exp model" = list(type="exp", params=list(d=0)),
+    #   "Spline model" = list(
+    #     type = "spline",
+    #     params = list(knots=c(1,6),slopes=c(0.8,0.04))
+    #   )
+    # )
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_cov_gee.simba")
+    print(summary(
+      sim_obj = sim,
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    ))
+  }
+
 }
 
 
@@ -113,9 +221,7 @@ if ( run_setup ) {
 ##### MAIN: Reproduce table 3.1 #####
 #####################################.
 
-if ( run_main ) {
-
-  start_time <- Sys.time()
+if ( run_tables3 ) {
 
   # Set levels
   sim %<>% set_levels(
@@ -123,23 +229,29 @@ if ( run_main ) {
     n_time_points = 7,
     n_ind_per_cluster = 100,
     theta = log(0.5),
-    d = c(0, 0.5, 1.4),
     tau = 0,
     sigma = 0.3,
-    data_type = "binomial",
-    # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM", "IG LM"),
-    delay_model = "s-curve"
+    data_type = c("normal", "binomial"),
+    analysis = c("2S LM", "IG LM"), # !!!!! update
+    delay_model = list(
+      "Exp (d=0)" = list(type="exp", params=list(d=0)),
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
-  ))
-
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.1.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
+    ))
+  }
 
 }
 
@@ -149,9 +261,7 @@ if ( run_main ) {
 ##### MAIN: Reproduce table 3.2 #####
 #####################################.
 
-if ( run_main ) {
-
-  start_time <- Sys.time()
+if ( run_tables3 ) {
 
   # Set levels
   sim %<>% set_levels(
@@ -159,23 +269,29 @@ if ( run_main ) {
     n_time_points = c(5,7,9),
     n_ind_per_cluster = 100,
     theta = log(0.5),
-    d = c(0, 0.5, 1.4),
     tau = 0,
     sigma = 0.3,
-    data_type = "binomial",
-    # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM", "IG LM"),
-    delay_model = "s-curve"
+    data_type = c("normal", "binomial"),
+    analysis = c("2S LM", "IG LM"), # !!!!! update
+    delay_model = list(
+      "Exp (d=0)" = list(type="exp", params=list(d=0)),
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
-  ))
-
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.2.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
+    ))
+  }
 
 }
 
@@ -185,9 +301,7 @@ if ( run_main ) {
 ##### MAIN: Reproduce table 3.3 #####
 #####################################.
 
-if ( run_main ) {
-
-  start_time <- Sys.time()
+if ( run_tables3 ) {
 
   # Set levels
   sim %<>% set_levels(
@@ -195,23 +309,29 @@ if ( run_main ) {
     n_time_points = 7,
     n_ind_per_cluster = c(20,50,100),
     theta = log(0.5),
-    d = c(0, 0.5, 1.4),
     tau = 0,
     sigma = 0.3,
-    data_type = "binomial",
-    # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM", "IG LM"),
-    delay_model = "s-curve"
+    data_type = c("normal", "binomial"),
+    analysis = c("2S LM", "IG LM"), # !!!!! update
+    delay_model = list(
+      "Exp (d=0)" = list(type="exp", params=list(d=0)),
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
-  ))
-
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.3.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
+    ))
+  }
 
 }
 
@@ -221,9 +341,7 @@ if ( run_main ) {
 ##### MAIN: Reproduce table 3.4 #####
 #####################################.
 
-if ( run_main ) {
-
-  start_time <- Sys.time()
+if ( run_tables3 ) {
 
   # Set levels
   sim %<>% set_levels(
@@ -231,23 +349,28 @@ if ( run_main ) {
     n_time_points = 7,
     n_ind_per_cluster = 100,
     theta = log(0.5),
-    d = c(0.5, 1.4),
     tau = 0,
     sigma = 0.3,
-    data_type = "binomial",
-    # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM"),
-    delay_model = "s-curve"
+    data_type = c("normal", "binomial"),
+    analysis = list("2S LM"=list(type="2S LM")),
+    delay_model = list(
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    bias = list(name="bias_d", truth="d", estimate="d_hat")
-  ))
-
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.4.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_d", truth="d", estimate="d_hat")
+    ))
+  }
 
 }
 
@@ -257,9 +380,7 @@ if ( run_main ) {
 ##### MAIN: Reproduce table 3.5 #####
 #####################################.
 
-if ( run_main ) {
-
-  start_time <- Sys.time()
+if ( run_tables3 ) {
 
   # Set levels
   sim %<>% set_levels(
@@ -267,23 +388,28 @@ if ( run_main ) {
     n_time_points = c(5,7,9),
     n_ind_per_cluster = 100,
     theta = log(0.5),
-    d = c(0.5, 1.4),
     tau = 0,
     sigma = 0.3,
-    data_type = "binomial",
-    # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM"),
-    delay_model = "s-curve"
+    data_type = c("normal", "binomial"),
+    analysis = list("2S LM"=list(type="2S LM")),
+    delay_model = list(
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    bias = list(name="bias_d", truth="d", estimate="d_hat")
-  ))
-
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.5.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_d", truth="d", estimate="d_hat")
+    ))
+  }
 
 }
 
@@ -293,9 +419,7 @@ if ( run_main ) {
 ##### MAIN: Reproduce table 3.6 #####
 #####################################.
 
-if ( run_main ) {
-
-  start_time <- Sys.time()
+if ( run_tables3 ) {
 
   # Set levels
   sim %<>% set_levels(
@@ -303,23 +427,28 @@ if ( run_main ) {
     n_time_points = 7,
     n_ind_per_cluster = c(20,50,100),
     theta = log(0.5),
-    d = c(0.5, 1.4),
     tau = 0,
     sigma = 0.3,
-    data_type = "binomial",
-    # data_type = c("normal", "binomial"),
-    analysis_type = c("2S LM"),
-    delay_model = "s-curve"
+    data_type = c("normal", "binomial"),
+    analysis = list("2S LM"=list(type="2S LM")),
+    delay_model = list(
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    bias = list(name="bias_d", truth="d", estimate="d_hat")
-  ))
-
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.6.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_d", truth="d", estimate="d_hat")
+    ))
+  }
 
 }
 
@@ -329,48 +458,45 @@ if ( run_main ) {
 ##### COVERAGE: Investigate coverage issue (no GEE) #####
 #########################################################.
 
-if ( FALSE ) {
-# if ( run_coverage ) {
-
-  start_time <- Sys.time()
+if ( run_cov_nogee ) {
 
   # Set levels
   sim %<>% set_levels(
-    n_clusters = seq(12, 120, 24),
-    # n_clusters = c(12,48),
+    n_clusters = c(12,48),
     n_time_points = 7,
     n_ind_per_cluster = seq(20, 100, 20),
-    # n_ind_per_cluster = c(20,100),
     theta = log(0.5),
-    d = 1.4,
-    # d = c(0,1.4),
-    tau = 0,
-    # tau = c(0,0.25),
+    tau = c(0,0.25),
     sigma = 3,
-    # sigma = 0.3,
-    data_type = "binomial",
-    # data_type = c("normal", "binomial"),
-    analysis_type = "2S LM",
-    # analysis_type = c("2S LM", "2S LMM REML"),
-    delay_model = "s-curve"
+    data_type = c("normal", "binomial"),
+    analysis = list(
+      "2S LM" = list(type="2S LM"),
+      "2S LMM REML" = list(type="2S LMM", params=list(REML=TRUE))
+    ),
+    delay_model = list(
+      "Exp (d=0)" = list(type="exp", params=list(d=0)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    coverage = list(
-      name = "cov_theta",
-      truth = "theta",
-      estimate = "theta_hat",
-      se = "se_theta_hat",
-      na.rm = TRUE
-    )
-  ))
-
-  saveRDS(sim, file=paste("sim",Sys.time()))
-  # sim <- readRDS("../sim 2020-05-06 02_46_27")
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_cov_nogee.simba")
+    print(summary(
+      sim_obj = sim,
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    ))
+  }
 
 }
 
@@ -380,10 +506,7 @@ if ( FALSE ) {
 ##### COVERAGE: Investigate coverage issue (GEE) #####
 ######################################################.
 
-if ( FALSE ) {
-# if ( run_coverage ) {
-
-  start_time <- Sys.time()
+if ( run_cov_gee ) {
 
   # Set levels
   sim %<>% set_levels(
@@ -391,30 +514,34 @@ if ( FALSE ) {
     n_time_points = 7,
     n_ind_per_cluster = 50,
     theta = log(0.5),
-    d = 1.4,
     tau = c(0,0.25),
     sigma = 0.3,
     data_type = c("normal", "binomial"),
-    analysis_type = c("2S GEE EX", "2S GEE ID"),
-    delay_model = "s-curve"
+    analysis = list(
+      "2S GEE EXC" = list(type="2S GEE", params=list(corr="exchangeable")),
+      "2S GEE IND" = list(type="2S GEE", params=list(corr="independence"))
+    ),
+    delay_model = list("Exp"=list(type="exp", params=list(d=1.4)))
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    coverage = list(
-      name = "cov_theta",
-      truth = "theta",
-      estimate = "theta_hat",
-      se = "se_theta_hat",
-      na.rm = TRUE
-    )
-  ))
-
-  saveRDS(sim, file=paste("sim",Sys.time()))
-  # sim <- readRDS("../sim 2020-05-06 03_41_40")
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_cov_gee.simba")
+    print(summary(
+      sim_obj = sim,
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    ))
+  }
 
 }
 
@@ -424,10 +551,7 @@ if ( FALSE ) {
 ##### COVERAGE: Investigate coverage issue (REML vs. ML) #####
 ##############################################################.
 
-if ( FALSE ) {
-# if ( run_coverage ) {
-
-  start_time <- Sys.time()
+if ( run_cov_reml ) {
 
   # Set levels
   sim %<>% set_levels(
@@ -435,32 +559,34 @@ if ( FALSE ) {
     n_time_points = 7,
     n_ind_per_cluster = c(20,100),
     theta = log(0.5),
-    d = 1.4,
-    tau = 0.25,
-    # tau = c(0,0.25),
+    tau = c(0,0.25),
     sigma = 0.3,
     data_type = "normal",
-    analysis_type = "2S LMM REML",
-    # analysis_type = c("2S LMM REML", "2S LMM ML"),
-    delay_model = "s-curve"
+    analysis = list(
+      "2S LMM REML" = list(type="2S LMM", params=list(REML=TRUE)),
+      "2S LMM ML" = list(type="2S LMM", params=list(REML=FALSE))
+    ),
+    delay_model = list("Exp"=list(type="exp", params=list(d=1.4)))
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    coverage = list(
-      name = "cov_theta",
-      truth = "theta",
-      estimate = "theta_hat",
-      se = "se_theta_hat",
-      na.rm = TRUE
-    )
-  ))
-
-  saveRDS(sim, file=paste("sim",Sys.time()))
-  # sim <- readRDS("../sim 2020-05-06 10_15_49")
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_cov_reml.simba")
+    print(summary(
+      sim_obj = sim,
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    ))
+  }
 
 }
 
@@ -470,9 +596,7 @@ if ( FALSE ) {
 ##### COVERAGE: Investigate coverage issue (H-likelihood) #####
 ###############################################################.
 
-if ( run_coverage ) {
-
-  start_time <- Sys.time()
+if ( run_cov_hlik ) {
 
   # Set levels
   sim %<>% set_levels(
@@ -480,30 +604,34 @@ if ( run_coverage ) {
     n_time_points = 7,
     n_ind_per_cluster = c(20,100),
     theta = log(0.5),
-    d = 1.4,
-    tau = 0,
+    tau = c(0,0.25),
     sigma = 3,
     data_type = "binomial",
-    analysis_type = c("2S LM", "2S HL"),
-    delay_model = "s-curve"
+    analysis = list(
+      "2S LM" = list(type="2S LM"),
+      "2S HL" = list(type="2S HL")
+    ),
+    delay_model = list("Exp"=list(type="exp", params=list(d=1.4)))
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    coverage = list(
-      name = "cov_theta",
-      truth = "theta",
-      estimate = "theta_hat",
-      se = "se_theta_hat",
-      na.rm = TRUE
-    )
-  ))
-
-  saveRDS(sim, file=paste("sim",Sys.time()))
-  # sim <- readRDS("../sim 2020-05-18 10_21_46")
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_cov_hlik.simba")
+    print(summary(
+      sim_obj = sim,
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    ))
+  }
 
 }
 
@@ -514,8 +642,6 @@ if ( run_coverage ) {
 #####################################.
 
 if ( run_testing_staircase ) {
-
-  start_time <- Sys.time()
 
   # Set levels
   sim %<>% set_levels(
@@ -531,23 +657,25 @@ if ( run_testing_staircase ) {
     delay_model = "s-curve"
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    bias = list(name="bias_theta", truth="theta", estimate="theta_hat"),
-    coverage = list(
-      name = "cov_theta",
-      truth = "theta",
-      estimate = "theta_hat",
-      se = "se_theta_hat",
-      na.rm = TRUE
-    )
-  ))
-
-  saveRDS(sim, file=paste("sim",Sys.time()))
-  # sim <- readRDS("../sim 2020-05-18 10_21_46")
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_staircase.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_theta", truth="theta", estimate="theta_hat"),
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    ))
+  }
 
 }
 
@@ -557,9 +685,7 @@ if ( run_testing_staircase ) {
 ##### TESTING: Spline (1 knot) #####
 ####################################.
 
-if ( run_testing_1KSPL ) {
-
-  start_time <- Sys.time()
+if ( run_testing_1Kspl ) {
 
   # Set levels
   sim %<>% set_levels(
@@ -572,27 +698,29 @@ if ( run_testing_1KSPL ) {
     sigma = 3,
     data_type = c("normal", "binomial"),
     analysis_type = "SPL 1K",
-    delay_model = "spline"
+    delay_model = "spline K1"
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  print(summary(
-    sim_obj = sim,
-    means = list(all=TRUE, na.rm=TRUE),
-    bias = list(name="bias_theta", truth="theta", estimate="theta_hat"),
-    coverage = list(
-      name = "cov_theta",
-      truth = "theta",
-      estimate = "theta_hat",
-      se = "se_theta_hat",
-      na.rm = TRUE
-    )
-  ))
-
-  saveRDS(sim, file=paste("sim",Sys.time()))
-  # sim <- readRDS("../sim 2020-05-19 17_20_20")
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_1Kspl.simba")
+    print(summary(
+      sim_obj = sim,
+      means = list(all=TRUE, na.rm=TRUE),
+      bias = list(name="bias_theta", truth="theta", estimate="theta_hat"),
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    ))
+  }
 
 }
 
@@ -602,9 +730,7 @@ if ( run_testing_1KSPL ) {
 ##### TESTING: Two-stage spline #####
 #####################################.
 
-if ( run_testing ) {
-
-  start_time <- Sys.time()
+if ( run_testing_2Sspl ) {
 
   # Set levels
   sim %<>% set_levels(
@@ -618,15 +744,18 @@ if ( run_testing ) {
     delay_model = "s-curve"
   )
 
-  sim %<>% run("one_simulation")
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  summary(
-    sim_obj = sim,
-    bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
-  )
-
-  print("")
-  print(round(difftime(Sys.time(), start_time),2))
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_2Sspl.simba")
+    summary(
+      sim_obj = sim,
+      bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
+    )
+  }
 
 }
 
