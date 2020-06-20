@@ -1,6 +1,6 @@
 # Title: "Stepped wedge lagged effect simulation"
 # Author: Avi Kenny
-# Date: 2020-05-20
+# Date: 2020-05-26
 
 
 
@@ -45,7 +45,8 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
 {
   run_setup <- TRUE
   run_results <- FALSE
-  run_main_526 <- TRUE
+  run_main_526 <- FALSE
+  run_main_602 <- TRUE
   run_tables3 <- FALSE
   run_cov_nogee <- FALSE
   run_cov_gee <- FALSE
@@ -59,16 +60,41 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
 
 
 
+###########################################################.
+##### Compile simulation results into a single object #####
+###########################################################.
+
+if (FALSE) {
+
+  # Merge *.simba files
+  sims <- list.files(
+    path = "../simba.out/simba.out",
+    pattern = "*.simba",
+    full.names = TRUE,
+    recursive = FALSE
+  )
+  print(length(sims))
+  sim <- NULL
+  for (s in sims) {
+    s <- readRDS(s)
+    if (is.null(sim)) { sim <- s } else { sim <- merge(sim, s) }
+  }
+  saveRDS(sim, file="../simba.out/sim_main_602.simba")
+
+}
+
+
+
 ###################################.
 ##### SETUP: Simulation setup #####
 ###################################.
 
-if ( run_setup ) {
+if (run_setup) {
 
   # Set up and configure simba object
   sim <- new_sim()
   sim %<>% set_config(
-    num_sim = 400,
+    num_sim = 800, # !!!!
     # num_sim = 1000,
     parallel = "none",
     packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
@@ -129,36 +155,11 @@ if ( run_setup ) {
 
 
 
-###########################################################.
-##### Compile simulation results into a single object #####
-###########################################################.
-
-if (FALSE) {
-
-  # Merge *.simba files
-  sims <- list.files(
-    path = "../simba.out",
-    # path = "../simba.out/simba.out",
-    pattern = "*.simba",
-    full.names = TRUE,
-    recursive = FALSE
-  )
-  sim <- NULL
-  for (s in sims) {
-    s <- readRDS(s)
-    if (is.null(sim)) { sim <- s } else { sim <- merge(sim, s) }
-  }
-  saveRDS(sim, file="../simba.out/sim_main_526.simba")
-
-}
-
-
-
 #####################################################.
 ##### MAIN: Comparing SPL(1,6) to 2S LMM (5/26) #####
 #####################################################.
 
-if ( run_main_526 ) {
+if (run_main_526) {
 
   # Set levels
   sim %<>% set_levels(
@@ -166,11 +167,13 @@ if ( run_main_526 ) {
     n_time_points = 7,
     n_ind_per_cluster = 50,
     theta = log(0.5),
-    tau = c(0,0.25), # !!!!! Is 0.25 the best level given the new sigma? Make this 50% of the variance
+    tau = c(0,1),
     sigma = 3,
     data_type = "normal",
     analysis = list(
-      "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6))),
+      "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=FALSE)),
+      "SPL (1-6)" = list(type="SPL", params=list(
+        knots=c(1,2,3,4,5,6), mono=FALSE)),
       "2S LMM" = list(type="2S LMM", params=list(REML=TRUE))
     ),
     delay_model = list(
@@ -202,6 +205,7 @@ if ( run_main_526 ) {
     sim <- readRDS("../simba.out/sim_main_526.simba")
     summ <- summary(
       sim_obj = sim,
+      mean = list(all=TRUE, na.rm=TRUE),
       coverage = list(
         name = "cov_theta",
         truth = "theta",
@@ -209,6 +213,92 @@ if ( run_main_526 ) {
         se = "se_theta_hat",
         na.rm = TRUE
       )
+    )
+
+    print(
+      summ %>% mutate(
+        bias_p = 100*round((mean_theta_hat-theta)/abs(theta),3),
+        cov_theta = 100 * round(cov_theta,2),
+        mean_se_theta_hat = round(mean_se_theta_hat,2)
+      ) %>%
+        subset(select=c(delay_model, tau, analysis, theta, mean_theta_hat,
+                        bias_p, mean_se_theta_hat, cov_theta)) %>%
+        arrange(delay_model, tau, analysis)
+    )
+
+  }
+
+}
+
+
+
+#####################################################.
+##### MAIN: Comparing SPL(1,6) to 2S LMM (5/26) #####
+#####################################################.
+
+if (run_main_602) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 48,
+    n_time_points = 7,
+    n_ind_per_cluster = 50,
+    theta = log(0.5),
+    tau = 0,
+    sigma = 3,
+    data_type = "normal",
+    analysis = list(
+      "SPL (1-6)" = list(type="SPL", params=list(
+        knots=c(1,2,3,4,5,6), mono=FALSE
+      )),
+      "SPL (1-6) MONO" = list(type="SPL", params=list(
+        knots=c(1,2,3,4,5,6), mono=TRUE
+      )),
+      "Last" = list(type="Last")
+    ),
+    delay_model = list(
+      "EXP (d=0)" = list(type="exp", params=list(d=0)),
+      "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
+      "SPL (k=1,6 s=0.8,0.04)" = list(
+        type = "spline",
+        params = list(knots=c(1,6),slopes=c(0.8,0.04))
+      ),
+      "SPL (k=2,4 s=0.1,0.4)" = list(
+        type = "spline",
+        params = list(knots=c(2,4),slopes=c(0.1,0.4))
+      )
+    )
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+
+    sim <- readRDS("../simba.out/sim_main_602.simba")
+    summ <- summary(
+      sim_obj = sim,
+      mean = list(all=TRUE, na.rm=TRUE),
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    )
+
+    print(
+      summ %>% mutate(
+        bias_p = 100*round((mean_theta_hat-theta)/abs(theta),3),
+        cov_theta = 100 * round(cov_theta,2),
+        mean_se_theta_hat = round(mean_se_theta_hat,2)
+      ) %>%
+        subset(select=c(delay_model, tau, analysis, theta, mean_theta_hat,
+                        bias_p, mean_se_theta_hat, cov_theta)) %>%
+        arrange(delay_model, tau, analysis)
     )
 
   }
@@ -221,7 +311,7 @@ if ( run_main_526 ) {
 ##### MAIN: Reproduce table 3.1 #####
 #####################################.
 
-if ( run_tables3 ) {
+if (run_tables3) {
 
   # Set levels
   sim %<>% set_levels(
@@ -261,7 +351,7 @@ if ( run_tables3 ) {
 ##### MAIN: Reproduce table 3.2 #####
 #####################################.
 
-if ( run_tables3 ) {
+if (run_tables3) {
 
   # Set levels
   sim %<>% set_levels(
@@ -301,7 +391,7 @@ if ( run_tables3 ) {
 ##### MAIN: Reproduce table 3.3 #####
 #####################################.
 
-if ( run_tables3 ) {
+if (run_tables3) {
 
   # Set levels
   sim %<>% set_levels(
@@ -341,7 +431,7 @@ if ( run_tables3 ) {
 ##### MAIN: Reproduce table 3.4 #####
 #####################################.
 
-if ( run_tables3 ) {
+if (run_tables3) {
 
   # Set levels
   sim %<>% set_levels(
@@ -380,7 +470,7 @@ if ( run_tables3 ) {
 ##### MAIN: Reproduce table 3.5 #####
 #####################################.
 
-if ( run_tables3 ) {
+if (run_tables3) {
 
   # Set levels
   sim %<>% set_levels(
@@ -419,7 +509,7 @@ if ( run_tables3 ) {
 ##### MAIN: Reproduce table 3.6 #####
 #####################################.
 
-if ( run_tables3 ) {
+if (run_tables3) {
 
   # Set levels
   sim %<>% set_levels(
@@ -458,7 +548,7 @@ if ( run_tables3 ) {
 ##### COVERAGE: Investigate coverage issue (no GEE) #####
 #########################################################.
 
-if ( run_cov_nogee ) {
+if (run_cov_nogee) {
 
   # Set levels
   sim %<>% set_levels(
@@ -506,7 +596,7 @@ if ( run_cov_nogee ) {
 ##### COVERAGE: Investigate coverage issue (GEE) #####
 ######################################################.
 
-if ( run_cov_gee ) {
+if (run_cov_gee) {
 
   # Set levels
   sim %<>% set_levels(
@@ -551,7 +641,7 @@ if ( run_cov_gee ) {
 ##### COVERAGE: Investigate coverage issue (REML vs. ML) #####
 ##############################################################.
 
-if ( run_cov_reml ) {
+if (run_cov_reml) {
 
   # Set levels
   sim %<>% set_levels(
@@ -596,7 +686,7 @@ if ( run_cov_reml ) {
 ##### COVERAGE: Investigate coverage issue (H-likelihood) #####
 ###############################################################.
 
-if ( run_cov_hlik ) {
+if (run_cov_hlik) {
 
   # Set levels
   sim %<>% set_levels(
@@ -641,7 +731,7 @@ if ( run_cov_hlik ) {
 ##### TESTING: Staircase method #####
 #####################################.
 
-if ( run_testing_staircase ) {
+if (run_testing_staircase) {
 
   # Set levels
   sim %<>% set_levels(
@@ -685,7 +775,7 @@ if ( run_testing_staircase ) {
 ##### TESTING: Spline (1 knot) #####
 ####################################.
 
-if ( run_testing_1Kspl ) {
+if (run_testing_1Kspl) {
 
   # Set levels
   sim %<>% set_levels(
@@ -730,7 +820,7 @@ if ( run_testing_1Kspl ) {
 ##### TESTING: Two-stage spline #####
 #####################################.
 
-if ( run_testing_2Sspl ) {
+if (run_testing_2Sspl) {
 
   # Set levels
   sim %<>% set_levels(
@@ -765,7 +855,7 @@ if ( run_testing_2Sspl ) {
 ##### MISC: Check MLE calculation #####
 #######################################.
 
-if ( run_misc ) {
+if (run_misc) {
 
   J <- 5
   theta_hat_l <- matrix(1:J,ncol=1)
@@ -807,7 +897,7 @@ if ( run_misc ) {
 ##### MISC: Linear spline alternative #####
 ###########################################.
 
-if ( run_misc ) {
+if (run_misc) {
 
   ggplot(data.frame(x=c(0,6)), aes(x=x)) +
     stat_function(fun = function(x) {
@@ -826,11 +916,59 @@ if ( run_misc ) {
 
 
 
+########################################.
+##### MISC: Graphs of delay models #####
+########################################.
+
+if (run_misc) {
+
+  # Generate data
+  d1 <- sapply(seq(0,6,0.1), function(x) {
+    ifelse(x>0, (1-exp(-x/0)), 0)
+  })
+  d2 <- sapply(seq(0,6,0.1), function(x) {
+    ifelse(x>0,1,0) * (1-exp(-x/0.5))
+  })
+  d3 <- sapply(seq(0,6,0.1), function(x) {
+    ifelse(x>0,1,0) * (1-exp(-x/1.4))
+  })
+  d4 <- sapply(seq(0,6,0.1), function(x) {
+    sw_spline(x=x, knots=c(1,6), slopes=c(0.8,0.04))
+  })
+  d5 <- sapply(seq(0,6,0.1), function(x) {
+    sw_spline(x=x, knots=c(2,4), slopes=c(0.1,0.4))
+  })
+  d6 <- sapply(seq(0,6,0.1), function(x) {
+    sw_spline(x=x, knots=c(2,4), slopes=c(0.4,0.1))
+  })
+
+  # Plot functions
+  ggplot(
+    data.frame(
+      x = rep(seq(0,6,0.1),6),
+      y = c(d1,d2,d3,d4,d5,d6),
+      fn = rep(c(
+        "Exp (d=0)",
+        "Exp (d=0.5)",
+        "Exp (d=1.4)",
+        "Spl (k=1,6 s=0.8,0.04)",
+        "Spl (k=2,4 s=0.1,0.4)",
+        "Spl (k=2,4 s=0.4,0.1)"
+      ), each=61)
+    ),
+    aes(x=x, y=y)
+  ) +
+    geom_line() +
+    facet_wrap(~fn, ncol=3) +
+    labs(x="Time (steps)", y="% effect achieved")
+
+}
+
 ################################.
 ##### MISC: Graphs for PPT #####
 ################################.
 
-if ( run_misc ) {
+if (run_misc) {
 
   # Plot 1
   # Exported as 600w X 400h
@@ -972,7 +1110,7 @@ if ( run_misc ) {
 ##### ARCHIVE: Old code (to recycle later) #####
 ################################################.
 
-if ( FALSE ) {
+if (FALSE) {
 
   print(paste("Number of available cores:", parallel::detectCores()))
   print(paste("SLURM_ARRAY_JOB_ID:", Sys.getenv("SLURM_ARRAY_JOB_ID")))

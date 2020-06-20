@@ -18,7 +18,7 @@ one_simulation <- function(L,C) {
     sigma = L$sigma,
     delay_model = L$delay_model
     # alpha = log(0.1),
-    # tau = 0.25,
+    # tau = 0,
     # theta = log(0.5),
     # n_clusters = 12,
     # n_time_points = 7,

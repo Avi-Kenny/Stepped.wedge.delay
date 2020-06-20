@@ -9,13 +9,17 @@
 #'         - "2S LMM" (two-stage with linear mixed model in first stage)
 #'         - "2S HL" (two-stage with H-likelihood in first stage)
 #'         - "SPL" (one-stage linear spline model)
+#'         - "Last" (!!!!! Testing: use last time point only !!!!!)
 #'       Possible values of `params` include:
 #'         - For type="2S GEE", params should equal list(corr=c), where values
 #'           of `c` include "exchangeable" and "independence"
 #'         - For type="2S LMM", params should equal list(REML=r), where values
 #'           of `r` include TRUE (fit using REML) and FALSE (fit using ML)
-#'         - For type="SPL", params show equal list(knots=k), where `k` is a
-#'           vector of knots (x-coordinates; excluding the knot at x=0)
+#'         - For type="SPL", params show equal list(knots=k, mono=TRUE), where
+#'           `k` is a vector of knots (x-coordinates; excluding the knot at x=0)
+#'           and mono is TRUE/FALSE (indicating whether to force the spline to
+#'           be monotonic)
+#'
 #'         - !!!!! Need to add ignore=TRUE to params
 #' @param data_type Type of data being analyzed ("binomial" or "normal")
 #' @param L Passed via simba; list of simulation levels
@@ -180,6 +184,48 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   }
 
+  # !!!!! Testing: Last !!!!!
+  if (analysis$type=="Last") {
+
+    # Run GLMM
+    if (data_type=="normal") {
+      model <- lmer(
+        y ~ factor(j) + factor(l) + (1|i),
+        data = data$data
+      )
+    } else if (data_type=="binomial") {
+      model <- glmer(
+        y ~ factor(j) + factor(l) + (1|i),
+        data = data$data,
+        family = binomial(link="log")
+      )
+    }
+
+    # Extract estimates and covariance matrix
+    coeff_names <- names(summary(model)$coefficients[,1])
+    theta_l_hat <- as.numeric(summary(model)$coefficients[,1])
+    sigma_l_hat <- vcov(model)
+
+    # Truncate theta_l_hat and sigma_l_hat
+    indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
+    coeff_names <- coeff_names[indices]
+    theta_l_hat <- theta_l_hat[indices]
+    sigma_l_hat <- sigma_l_hat[indices,indices]
+    sigma_l_hat <- as.matrix(sigma_l_hat)
+
+    # Use last theta_l_hat as estimate
+    theta_hat <- theta_l_hat[length(theta_l_hat)]
+    se_theta_hat <- sqrt(sigma_l_hat[nrow(sigma_l_hat),nrow(sigma_l_hat)])
+
+    return (list(
+      d_hat = NA,
+      theta_hat = theta_hat,
+      se_d_hat = NA,
+      se_theta_hat = se_theta_hat
+    ))
+
+  }
+
   # !!!!! Save and repurpose this code when imposing inequality constraints
 
   # if (analysis$type=="Staircase") {
@@ -228,7 +274,12 @@ run_analysis <- function(data, analysis, data_type, L, C) {
   if (analysis$type=="SPL") {
 
     # Dynamically build formula
-    formula <- "y ~ factor(j) + (1|i) + t0"
+    # !!!!! monotonic spline currently only works with lm/glm
+    if (analysis$params$mono) {
+      formula <- "y ~ factor(j) + t0"
+    } else {
+      formula <- "y ~ factor(j) + (1|i) + t0"
+    }
 
     # Add spline covariates to dataset
     k <- analysis$params$knots
@@ -241,24 +292,65 @@ run_analysis <- function(data, analysis, data_type, L, C) {
       }
     }
 
-    # Run GLMM with spline terms
-    if (data_type=="normal") {
-      model <- lmer(
-        formula = formula,
-        data = df
-      )
-    } else if (data_type=="binomial") {
-      model <- glmer(
-        formula = formula,
-        data = df,
-        family = binomial(link="log")
-      )
-    }
+    # !!!!! monotonic spline currently only works with lm/glm
+    if (analysis$params$mono) {
 
-    # Extract estimates and covariance matrix
-    coeff_names <- names(summary(model)$coefficients[,1])
-    coeffs <- as.numeric(summary(model)$coefficients[,1])
-    sigma_hat <- vcov(model)
+      # Run LM with spline terms
+      if (data_type=="normal") {
+        model <- lm(
+          formula = formula,
+          data = df
+        )
+      } else if (data_type=="binomial") {
+        model <- glm(
+          formula = formula,
+          data = df,
+          family = binomial(link="log")
+        )
+      }
+
+      # !!!!! Currently hard-coded for num_times=7
+      res <- restriktor(
+        object = model,
+        constraints = rbind(
+          c(0,0,0,0,0,0,0,-1,0,0,0,0,0),
+          c(0,0,0,0,0,0,0,-1,-1,0,0,0,0),
+          c(0,0,0,0,0,0,0,-1,-1,-1,0,0,0),
+          c(0,0,0,0,0,0,0,-1,-1,-1,-1,0,0),
+          c(0,0,0,0,0,0,0,-1,-1,-1,-1,-1,0),
+          c(0,0,0,0,0,0,0,-1,-1,-1,-1,-1,-1)
+        ),
+        rhs = c(0,0,0,0,0,0)
+      )
+      s <- summary(res)
+
+      # Extract coefficients and SEs
+      coeff_names <- names(summary(res)$coefficients[,1])
+      coeffs <- as.numeric(summary(res)$coefficients[,1])
+      sigma_hat <- summary(res)$V
+
+    } else {
+
+      # Run GLMM with spline terms
+      if (data_type=="normal") {
+        model <- lmer(
+          formula = formula,
+          data = df
+        )
+      } else if (data_type=="binomial") {
+        model <- glmer(
+          formula = formula,
+          data = df,
+          family = binomial(link="log")
+        )
+      }
+
+      # Extract estimates and covariance matrix
+      coeff_names <- names(summary(model)$coefficients[,1])
+      coeffs <- as.numeric(summary(model)$coefficients[,1])
+      sigma_hat <- vcov(model)
+
+    }
 
     # Truncate s_hat and sigma_s_hat
     indices <- c((length(coeff_names)-length(k)+1):length(coeff_names))
