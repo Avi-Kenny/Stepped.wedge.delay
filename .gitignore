@@ -39,3 +39,6 @@ inst/doc
 doc
 Meta
 lagresults.csv
+
+# SIMBA raw output files
+simba.out/simba.out
