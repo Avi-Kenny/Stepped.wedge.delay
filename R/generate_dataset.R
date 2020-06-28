@@ -95,7 +95,7 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
         y <- y_ij + rnorm(k, mean=0, sd=sigma)
         # !!!!! This table is too bulky
         data <- rbind(data, data.frame(cbind(
-          i=rep(i,k), j=rep(j,k), k=rep(k,k), l=rep(l,k), v_i=rep(v_i,k),
+          i=rep(i,k), j=rep(j,k), k=c(1:k), l=rep(l,k), v_i=rep(v_i,k),
           y_ij=rep(y_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y
         )))
       } else if (data_type=="binomial") {
@@ -110,7 +110,7 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
         y <- rbinom(n=k, size=1, prob=y_ij)
         # !!!!! This table is too bulky
         data <- rbind(data, data.frame(cbind(
-          i=rep(i,k), j=rep(j,k), k=rep(k,k), l=rep(l,k), v_i=rep(v_i,k),
+          i=rep(i,k), j=rep(j,k), k=c(1:k), l=rep(l,k), v_i=rep(v_i,k),
           y_ij=rep(y_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y
         )))
       }

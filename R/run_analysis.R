@@ -9,10 +9,14 @@
 #'         - "2S LMM" (two-stage with linear mixed model in first stage)
 #'         - "2S HL" (two-stage with H-likelihood in first stage)
 #'         - "SPL" (one-stage linear spline model)
+#'         - "SS" (one-stage smoothing spline)
 #'         - "Last" (!!!!! Testing: use last time point only !!!!!)
 #'       Possible values of `params` include:
 #'         - For type="2S GEE", params should equal list(corr=c), where values
 #'           of `c` include "exchangeable" and "independence"
+#'         - For type="SS", params should equal list(type=t), where values of
+#'           `t` include 1 (smooth Tx effect only) and 2 (smooth Tx effect and
+#'           time trend)
 #'         - For type="2S LMM", params should equal list(REML=r), where values
 #'           of `r` include TRUE (fit using REML) and FALSE (fit using ML)
 #'         - For type="SPL", params show equal list(knots=k, mono=TRUE), where

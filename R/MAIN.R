@@ -28,6 +28,7 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
   library(parallel)
   library(glmmTMB, lib.loc=)
   library(restriktor)
+  library(mgcv) # !!!!!
 }
 
 # Load functions
@@ -46,7 +47,7 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
   run_setup <- TRUE
   run_results <- FALSE
   run_main_526 <- FALSE
-  run_main_602 <- TRUE
+  run_main_602 <- FALSE
   run_tables3 <- FALSE
   run_cov_nogee <- FALSE
   run_cov_gee <- FALSE
@@ -56,6 +57,7 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
   run_testing_staircase <- FALSE
   run_testing_1Kspl <- FALSE
   run_testing_2Sspl <- FALSE
+  run_testing_pmle <- FALSE
 }
 
 
@@ -846,6 +848,133 @@ if (run_testing_2Sspl) {
       bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
     )
   }
+
+}
+
+
+
+#########################.
+##### TESTING: PMLE #####
+#########################.
+
+if (run_testing_pmle) {
+
+  # First, test the case where we have only one observation per cluster
+
+  # Generate dataset
+  data <- generate_dataset(
+    alpha = log(0.1),
+    tau = 0.01,
+    theta = log(0.5),
+    n_clusters = 12,
+    n_time_points = 7,
+    n_ind_per_cluster = 20,
+    data_type = "normal",
+    sigma = 0.01,
+    delay_model = list(type="exp", params=list(d=1))
+  )
+
+  # Estimator with mgcv (smooth for Tx effect)
+  model <- gamm(
+    y ~ factor(j) + s(l, k=7, fx=FALSE, bs="cr", m=2, pc=0),
+    random = list(i=~1),
+    data = data$data
+  )
+  plot(model$gam)
+  p <- plot(model$gam)[[1]]
+  est1 <- p$fit[length(p$fit)]
+  se1 <- p$se[length(p$se)]
+
+  # Estimator with mgcv (smooths for Tx effect and time)
+  model <- gamm(
+    y ~ s(j, k=7, fx=FALSE, bs="cr", m=2, pc=0) + s(l, k=7, fx=FALSE, bs="cr", m=2, pc=0),
+    random = list(i=~1),
+    data = data$data
+  )
+  plot(model$gam)
+  p <- plot(model$gam)[[2]]
+  est2 <- p$fit[length(p$fit)]
+  se2 <- p$se[length(p$se)]
+
+
+
+
+
+  # Compute the closed-form estimator
+  Y <- data$data$y
+  I <- data$params$n_clusters
+  J <- data$params$n_time_points
+  K <- data$params$n_ind_per_cluster
+  int_times <- data$data %>%
+    group_by(i,j) %>% summarize(l=max(l))
+  s <- matrix(int_times$l, nrow=I, byrow=TRUE)
+
+  for (i in 1:I) {
+    for (j in 1:J) {
+      N_ij <- matrix(0, nrow=K, ncol=J-1)
+      N_ij[,s[i,j]] <- 1
+      T_ij <- matrix(0, nrow=K, ncol=J-1)
+      if (j!=J) { T_ij[,j] <- 1 }
+      if (i==1 && j==1) {
+        N <- N_ij
+        mtx_T <- T_ij
+      } else {
+        N <- rbind(N,N_ij)
+        mtx_T <- rbind(mtx_T,T_ij)
+      }
+    }
+  }
+
+  Q <- matrix(0, nrow=J-1, ncol=J-3)
+  for (j in 1:(J-3)) {
+    Q[j,j] <- 1
+    Q[j+1,j] <- -2
+    Q[j+2,j] <- 1
+  }
+  R <- matrix(0, nrow=J-3, ncol=J-3)
+  for (j in 1:(J-3)) {
+    if (j>1) { R[j-1,j] <- 1/6 }
+    R[j,j] <- 2/3
+    if (j<J-3) { R[j+1,j] <- 1/6 }
+  }
+
+  # Construct variance component estimators
+  V_s <- tau * (t(B_s) %*% B_s) + V
+  X_s <- cbind(X, N %*% mtx_T)
+  beta_hat_s <- 999
+  V_s_inv <- solve(V_s)
+  l_R <- (-1/2) * (
+    log(det(V_s)) + log(det( t(X_s) %*% V_s_inv * X_s )) +
+        t(Y - (X_s %*% beta_hat_s)) %*% V_s_inv %*% (Y - (X_s %*% beta_hat_s))
+  )
+
+  K_star <- Q %*% solve(R) %*% t(Q)
+  simga2_e <- 0.01 # !!!!!
+  sigma2_gamma <- 0.01 # !!!!!
+  var_sum <- simga2_e + sigma2_gamma
+  W <- diag(rep(1/var_sum,I*J*K))
+  V <- diag(rep(var_sum,I*J*K))
+  X <- cbind(matrix(1, nrow=I*J*K, ncol=1), mtx_T)
+  W_f <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
+  lambda <- 20 # !!!!!
+  f_hat <- solve(t(N) %*% W_f %*% N + lambda * K_star) %*% t(N) %*% W_f %*% Y
+
+  # Plot delay model vs f_hat
+  theta <- log(0.5)
+  d2 <- sapply(seq(0,6,0.1), function(x) {
+    theta * ifelse(x>0,1,0) * (1-exp(-x/1))
+  })
+  # Plot functions
+  ggplot(
+    data.frame(
+      x = c(c(0:(J-1)), seq(0,6,0.1)),
+      y = c(0,f_hat,d2),
+      fn = c(rep("f_hat",J),rep("Exp (d=1)",61))
+    ),
+    aes(x=x, y=y, color=fn)
+  ) +
+    geom_line() +
+    labs(x="Time (steps)", y="Intervention effect")
 
 }
 
