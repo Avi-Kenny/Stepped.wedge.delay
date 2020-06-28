@@ -8,9 +8,9 @@
 #'         - "2S GEE" (two-stage with GEE in first stage)
 #'         - "2S LMM" (two-stage with linear mixed model in first stage)
 #'         - "2S HL" (two-stage with H-likelihood in first stage)
-#'         - "SPL" (one-stage linear spline model)
-#'         - "SS" (one-stage smoothing spline)
-#'         - "Last" (!!!!! Testing: use last time point only !!!!!)
+#'         - "SPL" (linear spline model)
+#'         - "SS" (smoothing spline model)
+#'         - "Last" (use last time point only)
 #'       Possible values of `params` include:
 #'         - For type="2S GEE", params should equal list(corr=c), where values
 #'           of `c` include "exchangeable" and "independence"
@@ -188,8 +188,9 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   }
 
-  # !!!!! Testing: Last !!!!!
   if (analysis$type=="Last") {
+
+    # !!!!! This is possibly incomplete
 
     # Run GLMM
     if (data_type=="normal") {
@@ -229,51 +230,6 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     ))
 
   }
-
-  # !!!!! Save and repurpose this code when imposing inequality constraints
-
-  # if (analysis$type=="Staircase") {
-  #
-  #   # Run linear model
-  #   if (data_type=="normal") {
-  #
-  #     model <- lm(
-  #       y ~ factor(j) + factor(l),
-  #       data = data$data
-  #     )
-  #
-  #   } else if (data_type=="binomial") {
-  #
-  #     model <- glm(
-  #       y ~ factor(j) + factor(l),
-  #       data = data$data,
-  #       family = binomial(link="log")
-  #     )
-  #
-  #   }
-  #
-  #   # !!!!! Currently hard-coded for num_times=7
-  #   res <- restriktor(
-  #     object = model,
-  #     constraints = rbind(
-  #       c(0,0,0,0,0,0,0,1,-1,0,0,0,0),
-  #       c(0,0,0,0,0,0,0,0,1,-1,0,0,0),
-  #       c(0,0,0,0,0,0,0,0,0,1,-1,0,0),
-  #       c(0,0,0,0,0,0,0,0,0,0,1,-1,0),
-  #       c(0,0,0,0,0,0,0,0,0,0,0,1,-1)
-  #     ),
-  #     rhs = c(0,0,0,0,0)
-  #   )
-  #   s <- summary(res)$coefficients
-  #
-  #   return (list(
-  #     d_hat = NA,
-  #     theta_hat = s[nrow(s),"Estimate"],
-  #     se_d_hat = NA,
-  #     se_theta_hat = s[nrow(s),"Std. Error"]
-  #   ))
-  #
-  # }
 
   if (analysis$type=="SPL") {
 
@@ -372,6 +328,37 @@ run_analysis <- function(data, analysis, data_type, L, C) {
       theta_hat <- k * coeffs
       se_theta_hat <- k * sqrt(sigma_hat[1,1])
     }
+
+    return (list(
+      d_hat = NA,
+      theta_hat = theta_hat,
+      se_d_hat = NA,
+      se_theta_hat = se_theta_hat
+    ))
+
+  }
+
+  if (analysis$type=="SS") {
+
+    J <- L$n_time_points
+
+    if (analysis$params$t==1) {
+      model <- gamm(
+        y ~ factor(j) + s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
+        random = list(i=~1),
+        data = data$data
+      )
+    } else if (analysis$params$t==2) {
+      model <- gamm(
+        y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
+          s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
+        random = list(i=~1),
+        data = data$data
+      )
+    }
+
+    theta_hat <- predict(model$gam, newdata=list(j=1, l=J-1), type = "terms")[2]
+    se_theta_hat <- summary(model$gam)$se[[length(summary(model$gam)$se)]]
 
     return (list(
       d_hat = NA,

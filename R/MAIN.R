@@ -17,7 +17,16 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
 
 # Load packages
 {
-  library(z.stepped.wedge)
+
+  install.packages(
+    pkgs = 'restriktor',
+    lib = '/home/akenny/R_lib',
+    repos = 'http://cran.us.r-project.org',
+    verbose = TRUE,
+    dependencies = TRUE
+  )
+
+
   library(dplyr)
   library(magrittr)
   library(ggplot2)
@@ -26,9 +35,9 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
   library(stringr)
   library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
   library(parallel)
-  library(glmmTMB, lib.loc=)
+  library(glmmTMB)
   library(restriktor)
-  library(mgcv) # !!!!!
+  library(mgcv)
 }
 
 # Load functions
@@ -48,6 +57,7 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
   run_results <- FALSE
   run_main_526 <- FALSE
   run_main_602 <- FALSE
+  run_main_627 <- TRUE
   run_tables3 <- FALSE
   run_cov_nogee <- FALSE
   run_cov_gee <- FALSE
@@ -96,11 +106,10 @@ if (run_setup) {
   # Set up and configure simba object
   sim <- new_sim()
   sim %<>% set_config(
-    num_sim = 800, # !!!!
-    # num_sim = 1000,
+    num_sim = 500, # !!!!!
     parallel = "none",
     packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
-                 "z.stepped.wedge", "glmmTMB", "restriktor")
+                 "glmmTMB", "restriktor", "mgcv")
     # stop_at_error = TRUE
   )
   sim %<>% add_constants(
@@ -280,6 +289,80 @@ if (run_main_602) {
   if (run_results) {
 
     sim <- readRDS("../simba.out/sim_main_602.simba")
+    summ <- summary(
+      sim_obj = sim,
+      mean = list(all=TRUE, na.rm=TRUE),
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    )
+
+    print(
+      summ %>% mutate(
+        bias_p = 100*round((mean_theta_hat-theta)/abs(theta),3),
+        cov_theta = 100 * round(cov_theta,2),
+        mean_se_theta_hat = round(mean_se_theta_hat,2)
+      ) %>%
+        subset(select=c(delay_model, tau, analysis, theta, mean_theta_hat,
+                        bias_p, mean_se_theta_hat, cov_theta)) %>%
+        arrange(delay_model, tau, analysis)
+    )
+
+  }
+
+}
+
+
+
+#############################################################.
+##### MAIN: Comparing Smoothing spline to others (6/27) #####
+#############################################################.
+
+if (run_main_627) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 48,
+    n_time_points = 7,
+    n_ind_per_cluster = 50,
+    theta = log(0.5),
+    tau = 0,
+    sigma = 3,
+    data_type = "normal",
+    analysis = list(
+      "SPL (1-6)" = list(type="SPL", params=list(
+        knots=c(1,2,3,4,5,6), mono=FALSE
+      )),
+      "2S LMM" = list(type="2S LMM", params=list(REML=TRUE)),
+      "Smooth 1" = list(type="SS", params=list(t=1)),
+      "Smooth 2" = list(type="SS", params=list(t=2))
+    ),
+    delay_model = list(
+      "EXP (d=0)" = list(type="exp", params=list(d=0)),
+      "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
+      "SPL (k=1,6 s=0.8,0.04)" = list(
+        type = "spline",
+        params = list(knots=c(1,6),slopes=c(0.8,0.04))
+      ),
+      "SPL (k=2,4 s=0.1,0.4)" = list(
+        type = "spline",
+        params = list(knots=c(2,4),slopes=c(0.1,0.4))
+      )
+    )
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+
+    sim <- readRDS("../simba.out/sim_main_627.simba")
     summ <- summary(
       sim_obj = sim,
       mean = list(all=TRUE, na.rm=TRUE),
@@ -864,14 +947,14 @@ if (run_testing_pmle) {
   # Generate dataset
   data <- generate_dataset(
     alpha = log(0.1),
-    tau = 0.01,
+    tau = 0,
     theta = log(0.5),
-    n_clusters = 12,
+    n_clusters = 48,
     n_time_points = 7,
-    n_ind_per_cluster = 20,
+    n_ind_per_cluster = 50,
     data_type = "normal",
-    sigma = 0.01,
-    delay_model = list(type="exp", params=list(d=1))
+    sigma = 3,
+    delay_model = list(type="exp", params=list(d=1.4))
   )
 
   # Estimator with mgcv (smooth for Tx effect)
@@ -880,101 +963,18 @@ if (run_testing_pmle) {
     random = list(i=~1),
     data = data$data
   )
-  plot(model$gam)
-  p <- plot(model$gam)[[1]]
-  est1 <- p$fit[length(p$fit)]
-  se1 <- p$se[length(p$se)]
+  est <- predict(model$gam, newdata=list(j=1, l=6), type = "terms")[2]
+  se <- summary(model$gam)$se[[length(summary(model$gam)$se)]]
 
   # Estimator with mgcv (smooths for Tx effect and time)
   model <- gamm(
-    y ~ s(j, k=7, fx=FALSE, bs="cr", m=2, pc=0) + s(l, k=7, fx=FALSE, bs="cr", m=2, pc=0),
+    y ~ s(j, k=7, fx=FALSE, bs="cr", m=2, pc=0) +
+            s(l, k=7, fx=FALSE, bs="cr", m=2, pc=0),
     random = list(i=~1),
     data = data$data
   )
-  plot(model$gam)
-  p <- plot(model$gam)[[2]]
-  est2 <- p$fit[length(p$fit)]
-  se2 <- p$se[length(p$se)]
-
-
-
-
-
-  # Compute the closed-form estimator
-  Y <- data$data$y
-  I <- data$params$n_clusters
-  J <- data$params$n_time_points
-  K <- data$params$n_ind_per_cluster
-  int_times <- data$data %>%
-    group_by(i,j) %>% summarize(l=max(l))
-  s <- matrix(int_times$l, nrow=I, byrow=TRUE)
-
-  for (i in 1:I) {
-    for (j in 1:J) {
-      N_ij <- matrix(0, nrow=K, ncol=J-1)
-      N_ij[,s[i,j]] <- 1
-      T_ij <- matrix(0, nrow=K, ncol=J-1)
-      if (j!=J) { T_ij[,j] <- 1 }
-      if (i==1 && j==1) {
-        N <- N_ij
-        mtx_T <- T_ij
-      } else {
-        N <- rbind(N,N_ij)
-        mtx_T <- rbind(mtx_T,T_ij)
-      }
-    }
-  }
-
-  Q <- matrix(0, nrow=J-1, ncol=J-3)
-  for (j in 1:(J-3)) {
-    Q[j,j] <- 1
-    Q[j+1,j] <- -2
-    Q[j+2,j] <- 1
-  }
-  R <- matrix(0, nrow=J-3, ncol=J-3)
-  for (j in 1:(J-3)) {
-    if (j>1) { R[j-1,j] <- 1/6 }
-    R[j,j] <- 2/3
-    if (j<J-3) { R[j+1,j] <- 1/6 }
-  }
-
-  # Construct variance component estimators
-  V_s <- tau * (t(B_s) %*% B_s) + V
-  X_s <- cbind(X, N %*% mtx_T)
-  beta_hat_s <- 999
-  V_s_inv <- solve(V_s)
-  l_R <- (-1/2) * (
-    log(det(V_s)) + log(det( t(X_s) %*% V_s_inv * X_s )) +
-        t(Y - (X_s %*% beta_hat_s)) %*% V_s_inv %*% (Y - (X_s %*% beta_hat_s))
-  )
-
-  K_star <- Q %*% solve(R) %*% t(Q)
-  simga2_e <- 0.01 # !!!!!
-  sigma2_gamma <- 0.01 # !!!!!
-  var_sum <- simga2_e + sigma2_gamma
-  W <- diag(rep(1/var_sum,I*J*K))
-  V <- diag(rep(var_sum,I*J*K))
-  X <- cbind(matrix(1, nrow=I*J*K, ncol=1), mtx_T)
-  W_f <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
-  lambda <- 20 # !!!!!
-  f_hat <- solve(t(N) %*% W_f %*% N + lambda * K_star) %*% t(N) %*% W_f %*% Y
-
-  # Plot delay model vs f_hat
-  theta <- log(0.5)
-  d2 <- sapply(seq(0,6,0.1), function(x) {
-    theta * ifelse(x>0,1,0) * (1-exp(-x/1))
-  })
-  # Plot functions
-  ggplot(
-    data.frame(
-      x = c(c(0:(J-1)), seq(0,6,0.1)),
-      y = c(0,f_hat,d2),
-      fn = c(rep("f_hat",J),rep("Exp (d=1)",61))
-    ),
-    aes(x=x, y=y, color=fn)
-  ) +
-    geom_line() +
-    labs(x="Time (steps)", y="Intervention effect")
+  est <- predict(model$gam, newdata=list(j=1, l=6), type = "terms")[2]
+  se <- summary(model$gam)$se[[length(summary(model$gam)$se)]]
 
 }
 
@@ -1240,6 +1240,86 @@ if (run_misc) {
 ################################################.
 
 if (FALSE) {
+
+  # Method corresponding to "semiparametric stochastic..." paper
+
+  # Compute the closed-form estimator
+  Y <- data$data$y
+  I <- data$params$n_clusters
+  J <- data$params$n_time_points
+  K <- data$params$n_ind_per_cluster
+  int_times <- data$data %>%
+    group_by(i,j) %>% summarize(l=max(l))
+  s <- matrix(int_times$l, nrow=I, byrow=TRUE)
+
+  for (i in 1:I) {
+    for (j in 1:J) {
+      N_ij <- matrix(0, nrow=K, ncol=J-1)
+      N_ij[,s[i,j]] <- 1
+      T_ij <- matrix(0, nrow=K, ncol=J-1)
+      if (j!=J) { T_ij[,j] <- 1 }
+      if (i==1 && j==1) {
+        N <- N_ij
+        mtx_T <- T_ij
+      } else {
+        N <- rbind(N,N_ij)
+        mtx_T <- rbind(mtx_T,T_ij)
+      }
+    }
+  }
+
+  Q <- matrix(0, nrow=J-1, ncol=J-3)
+  for (j in 1:(J-3)) {
+    Q[j,j] <- 1
+    Q[j+1,j] <- -2
+    Q[j+2,j] <- 1
+  }
+  R <- matrix(0, nrow=J-3, ncol=J-3)
+  for (j in 1:(J-3)) {
+    if (j>1) { R[j-1,j] <- 1/6 }
+    R[j,j] <- 2/3
+    if (j<J-3) { R[j+1,j] <- 1/6 }
+  }
+
+  # Construct variance component estimators
+  V_s <- tau * (t(B_s) %*% B_s) + V
+  X_s <- cbind(X, N %*% mtx_T)
+  beta_hat_s <- 999
+  V_s_inv <- solve(V_s)
+  l_R <- (-1/2) * (
+    log(det(V_s)) + log(det( t(X_s) %*% V_s_inv * X_s )) +
+      t(Y - (X_s %*% beta_hat_s)) %*% V_s_inv %*% (Y - (X_s %*% beta_hat_s))
+  )
+
+  K_star <- Q %*% solve(R) %*% t(Q)
+  simga2_e <- 0.01 # !!!!!
+  sigma2_gamma <- 0.01 # !!!!!
+  var_sum <- simga2_e + sigma2_gamma
+  W <- diag(rep(1/var_sum,I*J*K))
+  V <- diag(rep(var_sum,I*J*K))
+  X <- cbind(matrix(1, nrow=I*J*K, ncol=1), mtx_T)
+  W_f <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
+  lambda <- 20 # !!!!!
+  f_hat <- solve(t(N) %*% W_f %*% N + lambda * K_star) %*% t(N) %*% W_f %*% Y
+
+  # Plot delay model vs f_hat
+  theta <- log(0.5)
+  d2 <- sapply(seq(0,6,0.1), function(x) {
+    theta * ifelse(x>0,1,0) * (1-exp(-x/1))
+  })
+  # Plot functions
+  ggplot(
+    data.frame(
+      x = c(c(0:(J-1)), seq(0,6,0.1)),
+      y = c(0,f_hat,d2),
+      fn = c(rep("f_hat",J),rep("Exp (d=1)",61))
+    ),
+    aes(x=x, y=y, color=fn)
+  ) +
+    geom_line() +
+    labs(x="Time (steps)", y="Intervention effect")
+
+
 
   print(paste("Number of available cores:", parallel::detectCores()))
   print(paste("SLURM_ARRAY_JOB_ID:", Sys.getenv("SLURM_ARRAY_JOB_ID")))
