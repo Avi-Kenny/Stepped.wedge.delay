@@ -18,15 +18,6 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
 # Load packages
 {
 
-  install.packages(
-    pkgs = 'restriktor',
-    lib = '/home/akenny/R_lib',
-    repos = 'http://cran.us.r-project.org',
-    verbose = TRUE,
-    dependencies = TRUE
-  )
-
-
   library(dplyr)
   library(magrittr)
   library(ggplot2)
@@ -91,7 +82,7 @@ if (FALSE) {
     s <- readRDS(s)
     if (is.null(sim)) { sim <- s } else { sim <- merge(sim, s) }
   }
-  saveRDS(sim, file="../simba.out/sim_main_602.simba")
+  saveRDS(sim, file="../simba.out/sim_main_702.simba")
 
 }
 
@@ -330,27 +321,28 @@ if (run_main_627) {
     n_time_points = 7,
     n_ind_per_cluster = 50,
     theta = log(0.5),
-    tau = 0,
+    tau = c(0,1),
+    # tau = 0,
     sigma = 3,
     data_type = "normal",
     analysis = list(
-      "SPL (1-6)" = list(type="SPL", params=list(
-        knots=c(1,2,3,4,5,6), mono=FALSE
-      )),
-      "2S LMM" = list(type="2S LMM", params=list(REML=TRUE)),
+      # "SPL (1-6)" = list(type="SPL", params=list(
+      #   knots=c(1,2,3,4,5,6), mono=FALSE
+      # )),
+      # "2S LMM" = list(type="2S LMM", params=list(REML=TRUE)),
       "Smooth 1" = list(type="SS", params=list(t=1)),
       "Smooth 2" = list(type="SS", params=list(t=2))
     ),
     delay_model = list(
-      "EXP (d=0)" = list(type="exp", params=list(d=0)),
-      "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
-      "SPL (k=1,6 s=0.8,0.04)" = list(
+      # "EXP (d=0)" = list(type="exp", params=list(d=0)),
+      # "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
+      # "SPL (k=1,6 s=0.8,0.04)" = list(
+      #   type = "spline",
+      #   params = list(knots=c(1,6),slopes=c(0.8,0.04))
+      # ),
+      "SPL (k=2,4 s=0.4,0.1)" = list(
         type = "spline",
-        params = list(knots=c(1,6),slopes=c(0.8,0.04))
-      ),
-      "SPL (k=2,4 s=0.1,0.4)" = list(
-        type = "spline",
-        params = list(knots=c(2,4),slopes=c(0.1,0.4))
+        params = list(knots=c(2,4),slopes=c(0.4,0.1))
       )
     )
   )
