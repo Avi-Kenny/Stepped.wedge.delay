@@ -174,22 +174,18 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     h <- optimHess(par=c(theta_hat, d_hat), fn=nll)
 
     # Use hessian to estimate SEs and extract standard errors
-    # Note: tryCatch block necessary because sometimes estimated variances are <0
+    # Note: tryCatch necessary because sometimes estimated variances are <0
     se_theta_hat <- NA
-    se_d_hat <- NA
     tryCatch(
       expr = {
         se_theta_hat <- sqrt(solve(h)[1,1])
-        se_d_hat <- sqrt(solve(h)[2,2])
       },
       error = function(cond) {}, # !!!!! catch/process error
       warning = function(cond) {} # !!!!! catch/process error
     )
 
     return (list(
-      d_hat = d_hat,
       theta_hat = theta_hat,
-      se_d_hat = se_d_hat,
       se_theta_hat = se_theta_hat
     ))
 
@@ -216,9 +212,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     se_theta_hat <- summary(model)$coefficients["x_ij",2]
 
     return (list(
-      d_hat = NA,
       theta_hat = theta_hat,
-      se_d_hat = NA,
       se_theta_hat = se_theta_hat
     ))
 
@@ -276,9 +270,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     se_theta_hat <- summary(model)$coefficients["x_ij",2]
 
     return (list(
-      d_hat = NA,
       theta_hat = theta_hat,
-      se_d_hat = NA,
       se_theta_hat = se_theta_hat
     ))
 
@@ -310,9 +302,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     se_theta_hat <- summary(model)$coefficients["x_ij",2]
 
     return (list(
-      d_hat = NA,
       theta_hat = theta_hat,
-      se_d_hat = NA,
       se_theta_hat = se_theta_hat
     ))
 
@@ -353,9 +343,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     se_theta_hat <- sqrt(sigma_l_hat[nrow(sigma_l_hat),nrow(sigma_l_hat)])
 
     return (list(
-      d_hat = NA,
       theta_hat = theta_hat,
-      se_d_hat = NA,
       se_theta_hat = se_theta_hat
     ))
 
@@ -460,9 +448,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     }
 
     return (list(
-      d_hat = NA,
       theta_hat = theta_hat,
-      se_d_hat = NA,
       se_theta_hat = se_theta_hat
     ))
 
@@ -491,9 +477,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     se_theta_hat <- summary(model$gam)$se[[length(summary(model$gam)$se)]]
 
     return (list(
-      d_hat = NA,
       theta_hat = theta_hat,
-      se_d_hat = NA,
       se_theta_hat = se_theta_hat
     ))
 
@@ -565,9 +549,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     se_theta_hat <- summary(model)$se[[length(summary(model)$se)]]
 
     return (list(
-      d_hat = NA,
       theta_hat = theta_hat,
-      se_d_hat = NA,
       se_theta_hat = se_theta_hat
     ))
 
