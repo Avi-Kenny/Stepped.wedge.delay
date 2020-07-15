@@ -17,15 +17,6 @@ one_simulation <- function(L,C) {
     data_type = L$data_type,
     sigma = L$sigma,
     delay_model = L$delay_model
-    # alpha = log(0.1),
-    # tau = 0,
-    # theta = log(0.5),
-    # n_clusters = 12,
-    # n_time_points = 7,
-    # n_ind_per_cluster = 20,
-    # data_type = "normal",
-    # sigma = 0.3,
-    # delay_model = list(type="exp", params=list(d=1))
   )
 
   results <- run_analysis(

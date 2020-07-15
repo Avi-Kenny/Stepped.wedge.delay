@@ -23,12 +23,15 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
   library(ggplot2)
   library(lme4)
   library(geepack)
+  library(car)
   library(stringr)
   library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
   library(parallel)
   library(glmmTMB)
   library(restriktor)
   library(mgcv)
+  library(scam)
+  library(gamlss)
 }
 
 # Load functions
@@ -45,11 +48,10 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
 # Set code blocks to run
 {
   run_setup <- TRUE
-  run_results <- FALSE
-  run_main_526 <- FALSE
-  run_main_602 <- FALSE
-  run_main_627 <- TRUE
+  run_main <- TRUE
   run_tables3 <- FALSE
+  run_process_results <- FALSE
+  run_viz_results <- FALSE
   run_cov_nogee <- FALSE
   run_cov_gee <- FALSE
   run_cov_reml <- FALSE
@@ -77,12 +79,58 @@ if (FALSE) {
     recursive = FALSE
   )
   print(length(sims))
-  sim <- NULL
-  for (s in sims) {
-    s <- readRDS(s)
-    if (is.null(sim)) { sim <- s } else { sim <- merge(sim, s) }
+
+  # Merge into blocks of simulation objects
+  block_size <- 100
+  num_blocks <- ceiling(length(sims)/block_size)
+  sim_blocks_merged <- list()
+  for (block in c(1:num_blocks)) {
+
+    from <- block_size*(block-1)+1
+    to <- min(block_size*block, length(sims))
+    sim_block <- sims[from:to]
+
+    sim <- NULL
+    for (s in sim_block) {
+      s <- readRDS(s)
+      if (is.null(sim)) { sim <- s } else { sim <- merge(sim, s) }
+    }
+    sim_blocks_merged[[block]] <- sim
   }
-  saveRDS(sim, file="../simba.out/sim_main_702.simba")
+
+  # Merge blocks into single simulation object
+  sim <- sim_blocks_merged[[1]]
+  for (block in 2:length(sim_blocks_merged)) {
+    sim <- merge(sim, sim_blocks_merged[[block]])
+  }
+
+  saveRDS(sim, file="../simba.out/sim_main_708.simba")
+
+}
+
+
+
+###################################################################.
+##### TESTING: Generate code for testing new analysis methods #####
+###################################################################.
+
+if (FALSE) {
+
+  # Generate dataset
+  data <- generate_dataset(
+    alpha = log(0.1),
+    tau = 1,
+    theta = log(0.5),
+    n_clusters = 12,
+    n_time_points = 7,
+    n_ind_per_cluster = 20,
+    data_type = "normal",
+    sigma = 0.3,
+    delay_model = list(type="spline", params=list(knots=6, slopes=(1/6)))
+    # delay_model = list(type="exp", params=list(d=0))
+  )
+
+  J <- 7
 
 }
 
@@ -97,10 +145,10 @@ if (run_setup) {
   # Set up and configure simba object
   sim <- new_sim()
   sim %<>% set_config(
-    num_sim = 500, # !!!!!
+    num_sim = 1, # !!!!!
     parallel = "none",
     packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
-                 "glmmTMB", "restriktor", "mgcv")
+                 "glmmTMB", "restriktor", "mgcv", "scam")
     # stop_at_error = TRUE
   )
   sim %<>% add_constants(
@@ -157,163 +205,11 @@ if (run_setup) {
 
 
 
-#####################################################.
-##### MAIN: Comparing SPL(1,6) to 2S LMM (5/26) #####
-#####################################################.
+#################################################.
+##### MAIN: Run sim code (long-term effect) #####
+#################################################.
 
-if (run_main_526) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = 48,
-    n_time_points = 7,
-    n_ind_per_cluster = 50,
-    theta = log(0.5),
-    tau = c(0,1),
-    sigma = 3,
-    data_type = "normal",
-    analysis = list(
-      "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=FALSE)),
-      "SPL (1-6)" = list(type="SPL", params=list(
-        knots=c(1,2,3,4,5,6), mono=FALSE)),
-      "2S LMM" = list(type="2S LMM", params=list(REML=TRUE))
-    ),
-    delay_model = list(
-      "EXP (d=0)" = list(type="exp", params=list(d=0)),
-      "EXP (d=0.5)" = list(type="exp", params=list(d=0.5)),
-      "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
-      "SPL (k=1,6 s=0.8,0.04)" = list(
-        type = "spline",
-        params = list(knots=c(1,6),slopes=c(0.8,0.04))
-      ),
-      "SPL (k=2,4 s=0.1,0.4)" = list(
-        type = "spline",
-        params = list(knots=c(2,4),slopes=c(0.1,0.4))
-      ),
-      "SPL (k=2,4 s=0.4,0.1)" = list(
-        type = "spline",
-        params = list(knots=c(2,4),slopes=c(0.4,0.1))
-      )
-    )
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-
-    sim <- readRDS("../simba.out/sim_main_526.simba")
-    summ <- summary(
-      sim_obj = sim,
-      mean = list(all=TRUE, na.rm=TRUE),
-      coverage = list(
-        name = "cov_theta",
-        truth = "theta",
-        estimate = "theta_hat",
-        se = "se_theta_hat",
-        na.rm = TRUE
-      )
-    )
-
-    print(
-      summ %>% mutate(
-        bias_p = 100*round((mean_theta_hat-theta)/abs(theta),3),
-        cov_theta = 100 * round(cov_theta,2),
-        mean_se_theta_hat = round(mean_se_theta_hat,2)
-      ) %>%
-        subset(select=c(delay_model, tau, analysis, theta, mean_theta_hat,
-                        bias_p, mean_se_theta_hat, cov_theta)) %>%
-        arrange(delay_model, tau, analysis)
-    )
-
-  }
-
-}
-
-
-
-#####################################################.
-##### MAIN: Comparing SPL(1,6) to 2S LMM (5/26) #####
-#####################################################.
-
-if (run_main_602) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = 48,
-    n_time_points = 7,
-    n_ind_per_cluster = 50,
-    theta = log(0.5),
-    tau = 0,
-    sigma = 3,
-    data_type = "normal",
-    analysis = list(
-      "SPL (1-6)" = list(type="SPL", params=list(
-        knots=c(1,2,3,4,5,6), mono=FALSE
-      )),
-      "SPL (1-6) MONO" = list(type="SPL", params=list(
-        knots=c(1,2,3,4,5,6), mono=TRUE
-      )),
-      "Last" = list(type="Last")
-    ),
-    delay_model = list(
-      "EXP (d=0)" = list(type="exp", params=list(d=0)),
-      "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
-      "SPL (k=1,6 s=0.8,0.04)" = list(
-        type = "spline",
-        params = list(knots=c(1,6),slopes=c(0.8,0.04))
-      ),
-      "SPL (k=2,4 s=0.1,0.4)" = list(
-        type = "spline",
-        params = list(knots=c(2,4),slopes=c(0.1,0.4))
-      )
-    )
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-
-    sim <- readRDS("../simba.out/sim_main_602.simba")
-    summ <- summary(
-      sim_obj = sim,
-      mean = list(all=TRUE, na.rm=TRUE),
-      coverage = list(
-        name = "cov_theta",
-        truth = "theta",
-        estimate = "theta_hat",
-        se = "se_theta_hat",
-        na.rm = TRUE
-      )
-    )
-
-    print(
-      summ %>% mutate(
-        bias_p = 100*round((mean_theta_hat-theta)/abs(theta),3),
-        cov_theta = 100 * round(cov_theta,2),
-        mean_se_theta_hat = round(mean_se_theta_hat,2)
-      ) %>%
-        subset(select=c(delay_model, tau, analysis, theta, mean_theta_hat,
-                        bias_p, mean_se_theta_hat, cov_theta)) %>%
-        arrange(delay_model, tau, analysis)
-    )
-
-  }
-
-}
-
-
-
-#############################################################.
-##### MAIN: Comparing Smoothing spline to others (6/27) #####
-#############################################################.
-
-if (run_main_627) {
+if (run_main_lte) {
 
   # Set levels
   sim %<>% set_levels(
@@ -322,28 +218,34 @@ if (run_main_627) {
     n_ind_per_cluster = 50,
     theta = log(0.5),
     tau = c(0,1),
-    # tau = 0,
     sigma = 3,
     data_type = "normal",
     analysis = list(
-      # "SPL (1-6)" = list(type="SPL", params=list(
-      #   knots=c(1,2,3,4,5,6), mono=FALSE
-      # )),
-      # "2S LMM" = list(type="2S LMM", params=list(REML=TRUE)),
+      "2S LMM" = list(type="2S LMM", params=list(REML=T)),
+      "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
+      "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
+      "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
+      "LMM IGN" = list(type="LMM IGN"),
+      "WASH 1" = list(type="WASH", params=list(length=1)),
+      "WASH 2" = list(type="WASH", params=list(length=2)),
+      "Last" = list(type="Last"),
       "Smooth 1" = list(type="SS", params=list(t=1)),
-      "Smooth 2" = list(type="SS", params=list(t=2))
+      "Smooth 2" = list(type="SS", params=list(t=2)),
+      "MSS" = list(type="MSS")
+      # "LMM ATE" = list(type="LMM ATE")
     ),
     delay_model = list(
-      # "EXP (d=0)" = list(type="exp", params=list(d=0)),
-      # "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
-      # "SPL (k=1,6 s=0.8,0.04)" = list(
-      #   type = "spline",
-      #   params = list(knots=c(1,6),slopes=c(0.8,0.04))
-      # ),
-      "SPL (k=2,4 s=0.4,0.1)" = list(
+      "EXP (d=0)" = list(type="exp", params=list(d=0)),
+      "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
+      "SPL (k=1,6 s=0.8,0.04)" = list(
         type = "spline",
-        params = list(knots=c(2,4),slopes=c(0.4,0.1))
+        params = list(knots=c(1,6),slopes=c(0.8,0.04))
+      ),
+      "SPL (k=2,4 s=0.1,0.4)" = list(
+        type = "spline",
+        params = list(knots=c(2,4),slopes=c(0.1,0.4))
       )
+      # "Linear" = list(type="spline", params=list(knots=6, slopes=(1/6)))
     )
   )
 
@@ -351,34 +253,148 @@ if (run_main_627) {
   sim %<>% run("one_simulation", sim_uids=.tid)
   saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
-  # Output results
-  if (run_results) {
+}
 
-    sim <- readRDS("../simba.out/sim_main_627.simba")
-    summ <- summary(
-      sim_obj = sim,
-      mean = list(all=TRUE, na.rm=TRUE),
-      coverage = list(
-        name = "cov_theta",
-        truth = "theta",
-        estimate = "theta_hat",
-        se = "se_theta_hat",
-        na.rm = TRUE
+
+
+########################################################.
+##### MAIN: Process sim results (long-term effect) #####
+########################################################.
+
+if (run_results_lte) {
+
+  sim <- readRDS("../simba.out/sim_main_708.simba")
+  summ <- summary(
+    sim_obj = sim,
+    mean = list(all=TRUE, na.rm=TRUE),
+    coverage = list(
+      name = "cov_theta",
+      truth = "theta",
+      estimate = "theta_hat",
+      se = "se_theta_hat",
+      na.rm = TRUE
+    )
+  )
+
+  print(
+    summ %>% mutate(
+      bias_p = 100*round((mean_theta_hat-theta)/abs(theta),3),
+      cov_theta = 100 * round(cov_theta,2),
+      mean_se_theta_hat = round(mean_se_theta_hat,2)
+    ) %>%
+      subset(select=c(delay_model, tau, analysis, theta, mean_theta_hat,
+                      bias_p, mean_se_theta_hat, cov_theta)) %>%
+      arrange(delay_model, tau, analysis)
+  )
+
+}
+
+
+
+##########################################################.
+##### MAIN: Visualize sim results (long-term effect) #####
+##########################################################.
+
+if (run_viz_lte) {
+
+  plot_data <- data.frame(
+    "dgm" = character(),
+    "tau" = integer(),
+    "analysis_type" = character(),
+    "estimate" = double(),
+    "se" = double(),
+    stringsAsFactors=FALSE
+  )
+
+  sim_files <- c(
+    "../simba.out/sim_main_526.simba",
+    "../simba.out/sim_main_526_new.simba",
+    "../simba.out/sim_main_602.simba",
+    "../simba.out/sim_main_628_part1.simba",
+    "../simba.out/sim_main_630.simba",
+    "../simba.out/sim_main_702.simba",
+    "../simba.out/sim_main_708.simba"
+  )
+
+  for (sims in sim_files) {
+
+    sim <- readRDS(sims)
+    summ <- summary(sim_obj=sim, mean=list(all=TRUE, na.rm=TRUE))
+
+    for (i in 1:nrow(summ)) {
+      plot_data[nrow(plot_data)+1,] <- list(
+        "dgm" = summ[i,"delay_model"],
+        "tau" = summ[i,"tau"],
+        "analysis_type" = summ[i,"analysis"],
+        "estimate" = summ[i,"mean_theta_hat"],
+        "se" = summ[i,"mean_se_theta_hat"]
       )
-    )
-
-    print(
-      summ %>% mutate(
-        bias_p = 100*round((mean_theta_hat-theta)/abs(theta),3),
-        cov_theta = 100 * round(cov_theta,2),
-        mean_se_theta_hat = round(mean_se_theta_hat,2)
-      ) %>%
-        subset(select=c(delay_model, tau, analysis, theta, mean_theta_hat,
-                        bias_p, mean_se_theta_hat, cov_theta)) %>%
-        arrange(delay_model, tau, analysis)
-    )
+    }
 
   }
+
+  # Transform/clean data
+  plot_data %<>% filter(
+    !( dgm %in% c("SPL (k=2,4 s=0.4,0.1)") ) &
+    !(dgm=="SPL (k=2,4 s=0.1,0.4)" & analysis_type=="2S LMM") &
+    !(analysis_type=="Last") &
+    !(dgm=="EXP (d=0.5)") &
+    !(is.na(analysis_type))
+  )
+  plot_data$analysis_type %<>% car::Recode(paste0(
+    "'SPL (1-6) MONO'='SPL Mono';'LMM IGN'='LMM Ign';'WASH 1'='Wash 1';",
+    "'WASH 2'='Wash 2'"
+  ))
+  plot_data %<>% mutate(
+    analysis_type = factor(analysis_type, levels=c(
+      "LMM Ign", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1", "Smooth 2",
+      "SPL Mono", "SPL (1,6)", "2S LMM"
+    )),
+    tau = ifelse(tau==1,"Tau=1","Tau=0")
+  )
+
+  ggplot(
+    data = plot_data,
+    aes(
+      x = analysis_type,
+      y = estimate,
+      color = analysis_type,
+      ymin = estimate-(1.96*se),
+      ymax = estimate-(1.96*se)
+    )
+  ) +
+    geom_point(aes(color=analysis_type), size=2)+
+    geom_errorbar(
+      aes(ymin=estimate-(1.96*se), ymax=estimate+(1.96*se), color=analysis_type),
+      width = 0.2,
+      cex = 1
+    ) +
+    geom_point(
+      data = data.frame(
+        dgm = "SPL (k=2,4 s=0.1,0.4)",
+        tau = c("Tau=0","Tau=1"),
+        analysis_type = "2S LMM",
+        estimate = log(0.5),
+        se = 0
+      ),
+      pch = 7,
+      color = "darkred"
+    ) +
+    geom_hline(
+      yintercept = log(0.5),
+      linetype = 2
+    ) +
+    labs(
+      title = "Average point estimates and CIs (~1,000 sims per level)",
+      x = "Analysis type",
+      y = NULL
+    ) +
+    facet_grid(rows=vars(tau), cols=vars(dgm)) +
+    theme(
+      axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
+      legend.position = "none"
+    )
+  #
 
 }
 
@@ -1081,6 +1097,22 @@ if (run_misc) {
   ) +
     geom_line() +
     facet_wrap(~fn, ncol=3) +
+    labs(x="Time (steps)", y="% effect achieved")
+
+  # Generate data
+  d7 <- sapply(seq(0,6,0.1), function(x) {
+    sw_spline(x=x, knots=c(6), slopes=c(1/6))
+  })
+
+  # Plot functions
+  ggplot(
+    data.frame(
+      x = seq(0,6,0.1),
+      y = d7
+    ),
+    aes(x=x, y=y)
+  ) +
+    geom_line() +
     labs(x="Time (steps)", y="% effect achieved")
 
 }

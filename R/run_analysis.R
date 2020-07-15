@@ -8,8 +8,12 @@
 #'         - "2S GEE" (two-stage with GEE in first stage)
 #'         - "2S LMM" (two-stage with linear mixed model in first stage)
 #'         - "2S HL" (two-stage with H-likelihood in first stage)
+#'         - "LMM IGN" (linear mixed model that ignores the delay)
+#'         - "LMM ATE" (linear mixed model that estimates the average Tx effect)
 #'         - "SPL" (linear spline model)
 #'         - "SS" (smoothing spline model)
+#'         - "WASH" ("washout" model)
+#'         - "MSS" (monotonic smoothing spline model)
 #'         - "Last" (use last time point only)
 #'       Possible values of `params` include:
 #'         - For type="2S GEE", params should equal list(corr=c), where values
@@ -17,8 +21,11 @@
 #'         - For type="SS", params should equal list(type=t), where values of
 #'           `t` include 1 (smooth Tx effect only) and 2 (smooth Tx effect and
 #'           time trend)
+#'         - For type="WASH", params should equal list(length=k), where `k` is
+#'           the length of the washout period (i.e. the number of time steps to
+#'           discard).
 #'         - For type="2S LMM", params should equal list(REML=r), where values
-#'           of `r` include TRUE (fit using REML) and FALSE (fit using ML)
+#'           of `r` include TRUE (fit using REML) and FALSE (fit using ML).
 #'         - For type="SPL", params show equal list(knots=k, mono=TRUE), where
 #'           `k` is a vector of knots (x-coordinates; excluding the knot at x=0)
 #'           and mono is TRUE/FALSE (indicating whether to force the spline to
@@ -183,6 +190,129 @@ run_analysis <- function(data, analysis, data_type, L, C) {
       d_hat = d_hat,
       theta_hat = theta_hat,
       se_d_hat = se_d_hat,
+      se_theta_hat = se_theta_hat
+    ))
+
+  }
+
+  if (analysis$type=="LMM IGN") {
+
+    # Run GLMM
+    if (data_type=="normal") {
+      model <- lmer(
+        y ~ factor(j) + x_ij + (1|i),
+        data = data$data
+      )
+    } else if (data_type=="binomial") {
+      model <- glmer(
+        y ~ factor(j) + x_ij + (1|i),
+        data = data$data,
+        family = binomial(link="log")
+      )
+    }
+
+    # Extract estimate and SE
+    theta_hat <- summary(model)$coefficients["x_ij",1]
+    se_theta_hat <- summary(model)$coefficients["x_ij",2]
+
+    return (list(
+      d_hat = NA,
+      theta_hat = theta_hat,
+      se_d_hat = NA,
+      se_theta_hat = se_theta_hat
+    ))
+
+  }
+
+  if (analysis$type=="LMM ATE") {
+
+    # !!!!! testing: START !!!!!
+
+    model <- lmer(
+      y ~ factor(j) + factor(l) + (1|i),
+      data = data$data,
+      REML = TRUE
+    )
+    coeff_names <- names(summary(model)$coefficients[,1])
+    theta_l_hat <- as.numeric(summary(model)$coefficients[,1])
+    sigma_l_hat <- vcov(model)
+    indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
+    coeff_names <- coeff_names[indices]
+    theta_l_hat <- theta_l_hat[indices]
+    sigma_l_hat <- sigma_l_hat[indices,indices]
+    sigma_l_hat <- as.matrix(sigma_l_hat)
+
+    est <- mean(theta_l_hat)
+    se <- sqrt ( 1/(length(theta_l_hat)) * sum(sigma_l_hat) )
+
+    # !!!!! testing: END !!!!!
+
+    # Generate weights
+    weights <- c()
+    l_values <- unique(data$data$l)
+    for (lv in l_values) {
+      weights <- c(weights, nrow(data$data %>% filter(l==lv)))
+    }
+    weights <- 1/weights
+    weight_vec <- weights[(data$data$l+1)]
+
+    # Run GLMM
+    if (data_type=="normal") {
+      model <- lmer(
+        y ~ factor(j) + x_ij + (1|i),
+        weights = weight_vec,
+        data = data$data
+      )
+    } else if (data_type=="binomial") {
+      model <- glmer(
+        y ~ factor(j) + x_ij + (1|i),
+        data = data$data,
+        family = binomial(link="log")
+      )
+    }
+
+    # Extract estimate and SE
+    theta_hat <- summary(model)$coefficients["x_ij",1]
+    se_theta_hat <- summary(model)$coefficients["x_ij",2]
+
+    return (list(
+      d_hat = NA,
+      theta_hat = theta_hat,
+      se_d_hat = NA,
+      se_theta_hat = se_theta_hat
+    ))
+
+  }
+
+  if (analysis$type=="WASH") {
+
+    discard <- c(1:analysis$params$length)
+
+    # Filter data based on washout period
+    data_filtered <- data$data %>% filter(!(l %in% discard))
+
+    # Run GLMM
+    if (data_type=="normal") {
+      model <- lmer(
+        y ~ factor(j) + x_ij + (1|i),
+        data = data_filtered
+      )
+    } else if (data_type=="binomial") {
+      model <- glmer(
+        y ~ factor(j) + x_ij + (1|i),
+        data = data_filtered,
+        family = binomial(link="log")
+      )
+    }
+
+    # Extract estimate and SE
+    theta_hat <- summary(model)$coefficients["x_ij",1]
+    se_theta_hat <- summary(model)$coefficients["x_ij",2]
+
+    return (list(
+      d_hat = NA,
+      theta_hat = theta_hat,
+      se_d_hat = NA,
       se_theta_hat = se_theta_hat
     ))
 
@@ -369,45 +499,78 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   }
 
-  # !!!!! Update the "ignore" code
+  if (analysis$type=="MSS") {
 
-  # if (analysis$type %in% c("IG LM", "IG GEE")) {
-  #
-  #   if (analysis$type=="IG LM") {
-  #
-  #     # Run linear model
-  #     if (data_type=="normal") {
-  #       model <- lm(
-  #         y ~ factor(j) + x_ij,
-  #         data = data$data
-  #       )
-  #     } else if (data_type=="binomial") {
-  #       model <- glm(
-  #         y ~ factor(j) + x_ij,
-  #         data = data$data,
-  #         family = binomial(link="log")
-  #       )
-  #     }
-  #
-  #     # Extract coefficients and SEs
-  #     theta_hat <- summary(model)$coefficients["x_ij",1]
-  #     se_theta_hat <- summary(model)$coefficients["x_ij",2]
-  #
-  #   }
-  #
-  #   if (analysis$type=="IG GEE") {
-  #
-  #     # !!!!! TO DO
-  #
-  #   }
-  #
-  #   return (list(
-  #     d_hat = NA,
-  #     theta_hat = theta_hat,
-  #     se_d_hat = NA,
-  #     se_theta_hat = se_theta_hat
-  #   ))
-  #
-  # }
+    # !!!!! Testing: START !!!!!
+
+    df <- cbind("obs_id"=c(1:nrow(data$data)),data$data)
+
+
+    # Run smoothing spline for comparison
+    model <- gamm(
+      y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
+        s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
+      random = list(i=~1),
+      data = df
+    )
+    theta_hat <- predict(model$gam, newdata=list(j=1, l=J-1), type = "terms")[2]
+    se_theta_hat <- summary(model$gam)$se[[length(summary(model$gam)$se)]]
+
+
+    model_test <- gamlss(
+      formula = y ~ pb(j) + pbm(l, mono="down") + random(as.factor(i)),
+      # formula = y ~ pb(j) + pb(l) + random(as.factor(i)),
+      # formula = y ~ scs(j) + scs(l) + random(as.factor(i)),
+      # formula = y ~ scs(j) + scs(l) + re(random = ~1|i),
+      # !!!!! Add point constraint
+      # method = CG(),
+      family = NO(),
+      data = df
+    )
+
+    term.plot(model_test, se=TRUE)
+    predict(
+      object = model_test,
+      # se.fit = TRUE,
+      # what = c("mu", "sigma", "nu", "tau"),
+      # what = "mu",
+      type = "terms",
+      newdata = data.frame(i=c(1,2),l=6,j=7)
+    )
+
+    model_lme <- lme(
+      fixed = y ~ j,
+      random = ~1|i,
+      data = df
+    )
+    summary(model_lme)
+
+
+    # !!!!! Testing: END !!!!!
+
+
+
+    J <- L$n_time_points
+
+    # !!!!! No random effect; two smooth terms
+    model <- scam(
+      y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
+        s(l, k=J, m=2, bs="mpd"),
+      data = data$data
+    )
+
+    l_first <- predict(model, newdata=list(j=1, l=0), type = "terms")[[2]]
+    l_last <- predict(model, newdata=list(j=1, l=J-1), type = "terms")[[2]]
+    theta_hat <- l_last - l_first
+    se_theta_hat <- summary(model)$se[[length(summary(model)$se)]]
+
+    return (list(
+      d_hat = NA,
+      theta_hat = theta_hat,
+      se_d_hat = NA,
+      se_theta_hat = se_theta_hat
+    ))
+
+  }
 
 }
