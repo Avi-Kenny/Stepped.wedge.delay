@@ -31,7 +31,7 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
   library(restriktor)
   library(mgcv)
   library(scam)
-  library(gamlss)
+  # library(gamlss)
 }
 
 # Load functions
@@ -48,10 +48,11 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
 # Set code blocks to run
 {
   run_setup <- TRUE
-  run_main <- TRUE
-  run_tables3 <- FALSE
+  run_main_lte <- FALSE
+  run_main_power <- TRUE
   run_process_results <- FALSE
-  run_viz_results <- FALSE
+  run_viz <- FALSE
+  run_tables3 <- FALSE
   run_cov_nogee <- FALSE
   run_cov_gee <- FALSE
   run_cov_reml <- FALSE
@@ -81,7 +82,7 @@ if (FALSE) {
   print(length(sims))
 
   # Merge into blocks of simulation objects
-  block_size <- 100
+  block_size <- 200
   num_blocks <- ceiling(length(sims)/block_size)
   sim_blocks_merged <- list()
   for (block in c(1:num_blocks)) {
@@ -100,11 +101,13 @@ if (FALSE) {
 
   # Merge blocks into single simulation object
   sim <- sim_blocks_merged[[1]]
-  for (block in 2:length(sim_blocks_merged)) {
-    sim <- merge(sim, sim_blocks_merged[[block]])
+  if (length(sim_blocks_merged)>1) {
+    for (block in 2:length(sim_blocks_merged)) {
+      sim <- merge(sim, sim_blocks_merged[[block]])
+    }
   }
 
-  saveRDS(sim, file="../simba.out/sim_main_708.simba")
+  saveRDS(sim, file="../simba.out/sim_power_728.simba")
 
 }
 
@@ -126,11 +129,12 @@ if (FALSE) {
     n_ind_per_cluster = 20,
     data_type = "normal",
     sigma = 0.3,
-    delay_model = list(type="spline", params=list(knots=6, slopes=(1/6)))
-    # delay_model = list(type="exp", params=list(d=0))
+    # delay_model = list(type="spline", params=list(knots=6, slopes=(1/6)))
+    delay_model = list(type="exp", params=list(d=1))
   )
 
-  J <- 7
+  # Set number of time points
+  J <- data$params$n_time_points
 
 }
 
@@ -145,7 +149,7 @@ if (run_setup) {
   # Set up and configure simba object
   sim <- new_sim()
   sim %<>% set_config(
-    num_sim = 1, # !!!!!
+    num_sim = 200, # !!!!!
     parallel = "none",
     packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
                  "glmmTMB", "restriktor", "mgcv", "scam")
@@ -257,22 +261,81 @@ if (run_main_lte) {
 
 
 
-########################################################.
-##### MAIN: Process sim results (long-term effect) #####
-########################################################.
+######################################.
+##### MAIN: Run sim code (power) #####
+######################################.
 
-if (run_results_lte) {
+if (run_main_power) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 48,
+    n_time_points = 7,
+    n_ind_per_cluster = 50,
+    theta = log(c(0.5,0.6,0.7,0.8,0.9,1.0)),
+    tau = c(0,1),
+    sigma = 3,
+    data_type = "normal",
+    analysis = list(
+      # "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
+      # "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
+      # "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
+      "LMM IGN" = list(type="LMM IGN"),
+      # "WASH 1" = list(type="WASH", params=list(length=1)),
+      # "WASH 2" = list(type="WASH", params=list(length=2)),
+      # "Last" = list(type="Last"),
+      # "Smooth 1" = list(type="SS", params=list(t=1)),
+      "Smooth 2" = list(type="SS", params=list(t=2)),
+      "LMM ATE" = list(type="LMM ATE"),
+      "SS ATE" = list(type="SS ATE", params=list(t=2))
+    ),
+    delay_model = list(
+      "EXP (d=0)" = list(type="exp", params=list(d=0)),
+      "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
+      "SPL (k=1,6 s=0.8,0.04)" = list(
+        type = "spline",
+        params = list(knots=c(1,6),slopes=c(0.8,0.04))
+      ),
+      "SPL (k=2,4 s=0.1,0.4)" = list(
+        type = "spline",
+        params = list(knots=c(2,4),slopes=c(0.1,0.4))
+      )
+    )
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+}
+
+
+
+###############################################.
+##### MAIN: Process sim results (LTE+ATE) #####
+###############################################.
+
+if (run_process_results) {
 
   sim <- readRDS("../simba.out/sim_main_708.simba")
   summ <- summary(
     sim_obj = sim,
     mean = list(all=TRUE, na.rm=TRUE),
     coverage = list(
-      name = "cov_theta",
-      truth = "theta",
-      estimate = "theta_hat",
-      se = "se_theta_hat",
-      na.rm = TRUE
+      list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      ),
+      list(
+        name = "beta",
+        truth = 0,
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
     )
   )
 
@@ -280,10 +343,11 @@ if (run_results_lte) {
     summ %>% mutate(
       bias_p = 100*round((mean_theta_hat-theta)/abs(theta),3),
       cov_theta = 100 * round(cov_theta,2),
-      mean_se_theta_hat = round(mean_se_theta_hat,2)
+      mean_se_theta_hat = round(mean_se_theta_hat,2),
+      power = 1 - beta
     ) %>%
       subset(select=c(delay_model, tau, analysis, theta, mean_theta_hat,
-                      bias_p, mean_se_theta_hat, cov_theta)) %>%
+                      bias_p, mean_se_theta_hat, cov_theta, power)) %>%
       arrange(delay_model, tau, analysis)
   )
 
@@ -291,43 +355,66 @@ if (run_results_lte) {
 
 
 
-##########################################################.
-##### MAIN: Visualize sim results (long-term effect) #####
-##########################################################.
+####################################################.
+##### MAIN: Visualize sim results (LTE, power) #####
+####################################################.
 
-if (run_viz_lte) {
+if (run_viz) {
+
+  # Set this manually
+  which <- "Power"
+
+  if (which=="Estimates and CIs") {
+    sim_files <- c(
+      "../simba.out/sim_main_526.simba",
+      "../simba.out/sim_main_526_new.simba",
+      "../simba.out/sim_main_602.simba",
+      "../simba.out/sim_main_628_part1.simba",
+      "../simba.out/sim_main_630.simba",
+      "../simba.out/sim_main_702.simba",
+      "../simba.out/sim_main_708.simba"
+    )
+  }
+
+  if (which=="Power") {
+    # sim_files <- "../simba.out/sim_power_715.simba"
+    sim_files <- "../simba.out/sim_power_728.simba"
+  }
 
   plot_data <- data.frame(
     "dgm" = character(),
     "tau" = integer(),
+    "theta" = double(),
     "analysis_type" = character(),
     "estimate" = double(),
     "se" = double(),
-    stringsAsFactors=FALSE
-  )
-
-  sim_files <- c(
-    "../simba.out/sim_main_526.simba",
-    "../simba.out/sim_main_526_new.simba",
-    "../simba.out/sim_main_602.simba",
-    "../simba.out/sim_main_628_part1.simba",
-    "../simba.out/sim_main_630.simba",
-    "../simba.out/sim_main_702.simba",
-    "../simba.out/sim_main_708.simba"
+    "power" = double(),
+    stringsAsFactors = FALSE
   )
 
   for (sims in sim_files) {
 
     sim <- readRDS(sims)
-    summ <- summary(sim_obj=sim, mean=list(all=TRUE, na.rm=TRUE))
+    summ <- summary(
+      sim_obj = sim,
+      mean = list(all=TRUE, na.rm=TRUE),
+      coverage = list(
+        name = "beta",
+        truth = 0,
+        estimate = "theta_hat",
+        se = "se_theta_hat"
+      )
+    )
 
     for (i in 1:nrow(summ)) {
       plot_data[nrow(plot_data)+1,] <- list(
         "dgm" = summ[i,"delay_model"],
         "tau" = summ[i,"tau"],
+        "theta" = summ[i,"theta"],
         "analysis_type" = summ[i,"analysis"],
         "estimate" = summ[i,"mean_theta_hat"],
-        "se" = summ[i,"mean_se_theta_hat"]
+        "se" = summ[i,"mean_se_theta_hat"],
+        "power" = 1 - summ[i,"beta"]
       )
     }
 
@@ -336,65 +423,187 @@ if (run_viz_lte) {
   # Transform/clean data
   plot_data %<>% filter(
     !( dgm %in% c("SPL (k=2,4 s=0.4,0.1)") ) &
-    !(dgm=="SPL (k=2,4 s=0.1,0.4)" & analysis_type=="2S LMM") &
-    !(analysis_type=="Last") &
-    !(dgm=="EXP (d=0.5)") &
-    !(is.na(analysis_type))
+      !(dgm=="SPL (k=2,4 s=0.1,0.4)" & analysis_type=="2S LMM") &
+      !(analysis_type=="Last") &
+      !(dgm=="EXP (d=0.5)") &
+      !(is.na(analysis_type))
   )
   plot_data$analysis_type %<>% car::Recode(paste0(
     "'SPL (1-6) MONO'='SPL Mono';'LMM IGN'='LMM Ign';'WASH 1'='Wash 1';",
     "'WASH 2'='Wash 2'"
   ))
+
+  plot_data$theta_log <- rep(NA, nrow(plot_data))
+  plot_data$theta_log <- ifelse(round(as.numeric(plot_data$theta),1)==-0.7,
+                            "log(0.5)", plot_data$theta_log)
+  plot_data$theta_log <- ifelse(round(as.numeric(plot_data$theta),1)==-0.5,
+                            "log(0.6)", plot_data$theta_log)
+  plot_data$theta_log <- ifelse(round(as.numeric(plot_data$theta),1)==-0.4,
+                            "log(0.7)", plot_data$theta_log)
+  plot_data$theta_log <- ifelse(round(as.numeric(plot_data$theta),1)==-0.2,
+                            "log(0.8)", plot_data$theta_log)
+  plot_data$theta_log <- ifelse(round(as.numeric(plot_data$theta),1)==-0.1,
+                            "log(0.9)", plot_data$theta_log)
+  plot_data$theta_log <- ifelse(round(as.numeric(plot_data$theta),1)==0,
+                            "log(1.0)", plot_data$theta_log)
+  plot_data$theta_log <- as.factor(plot_data$theta_log)
   plot_data %<>% mutate(
-    analysis_type = factor(analysis_type, levels=c(
-      "LMM Ign", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1", "Smooth 2",
-      "SPL Mono", "SPL (1,6)", "2S LMM"
-    )),
     tau = ifelse(tau==1,"Tau=1","Tau=0")
   )
+  if (which=="Estimates and CIs") {
+    plot_data %<>% mutate(
+      analysis_type = factor(analysis_type, levels=c(
+        "LMM Ign", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1",
+        "Smooth 2", "SPL Mono", "SPL (1,6)", "2S LMM"
+      ))
+    )
+  }
+  if (which=="Power") {
+    # plot_data %<>% filter(analysis_type %in% c(
+    #   "LMM Ign", "Wash 2", "SPL (1-6)", "Smooth 2", "SPL (1,6)", "LMM ATE"
+    # ))
+    # plot_data %<>% mutate(
+    #   analysis_type = factor(analysis_type, levels=c(
+    #     "LMM Ign", "Wash 2", "SPL (1-6)", "Smooth 2", "SPL (1,6)", "LMM ATE"
+    #   ))
+    # )
+    # plot_data %<>% mutate(
+    #   analysis_type = factor(analysis_type, levels=c(
+    #     "LMM Ign", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1",
+    #     "Smooth 2", "SPL Mono", "SPL (1,6)", "2S LMM", "LMM ATE"
+    #   ))
+    # )
+  }
 
-  ggplot(
-    data = plot_data,
-    aes(
-      x = analysis_type,
-      y = estimate,
-      color = analysis_type,
-      ymin = estimate-(1.96*se),
-      ymax = estimate-(1.96*se)
-    )
-  ) +
-    geom_point(aes(color=analysis_type), size=2)+
-    geom_errorbar(
-      aes(ymin=estimate-(1.96*se), ymax=estimate+(1.96*se), color=analysis_type),
-      width = 0.2,
-      cex = 1
+  # Plot: Estimates and CIs
+  # Export: 800 x 500
+  if (which=="Estimates and CIs") {
+
+    # Plot for LTE
+    ggplot(
+      data = plot_data,
+      aes(
+        x = analysis_type,
+        y = estimate,
+        color = analysis_type,
+        ymin = estimate-(1.96*se),
+        ymax = estimate-(1.96*se)
+      )
     ) +
-    geom_point(
-      data = data.frame(
-        dgm = "SPL (k=2,4 s=0.1,0.4)",
-        tau = c("Tau=0","Tau=1"),
-        analysis_type = "2S LMM",
-        estimate = log(0.5),
-        se = 0
-      ),
-      pch = 7,
-      color = "darkred"
+      geom_point(aes(color=analysis_type), size=2)+
+      geom_errorbar(
+        aes(
+          ymin = estimate-(1.96*se),
+          ymax = estimate+(1.96*se),
+          color = analysis_type
+        ),
+        width = 0.2,
+        cex = 1
+      ) +
+      geom_point(
+        data = data.frame(
+          dgm = "SPL (k=2,4 s=0.1,0.4)",
+          tau = c("Tau=0","Tau=1"),
+          analysis_type = "2S LMM",
+          estimate = log(0.5),
+          se = 0
+        ),
+        pch = 7,
+        color = "darkred"
+      ) +
+      geom_hline(
+        yintercept = log(0.5),
+        linetype = 2
+      ) +
+      labs(
+        title = "Average point estimates and CIs (~1,000 sims per level)",
+        x = "Analysis type",
+        y = NULL
+      ) +
+      facet_grid(rows=vars(tau), cols=vars(dgm)) +
+      theme(
+        axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
+        legend.position = "none"
+      )
+
+    # Plot for ATE
+
+    for (th in c(0.5, 0.9)) {
+
+      plot <- ggplot(
+        data = plot_data %>% filter(theta==log(th)),
+        aes(
+          x = analysis_type,
+          y = estimate,
+          color = analysis_type,
+          ymin = estimate-(1.96*se),
+          ymax = estimate-(1.96*se)
+        )
+      ) +
+        geom_hline(
+          mapping = aes(yintercept=y),
+          data = data.frame(
+            dgm = c("EXP (d=0)", "EXP (d=1.4)", "SPL (k=1,6 s=0.8,0.04)",
+                    "SPL (k=2,4 s=0.1,0.4)"),
+            y = c(log(th)*1, log(th)*0.77, log(th)*0.82, log(th)*0.57)
+          ),
+          linetype = 2
+        ) +
+        geom_point(aes(color=analysis_type), size=2)+
+        geom_errorbar(
+          aes(
+            ymin = estimate-(1.96*se),
+            ymax = estimate+(1.96*se),
+            color = analysis_type
+          ),
+          width = 0.2,
+          cex = 1
+        ) +
+        labs(
+          title = paste0("Average point estimates and CIs (200 sims per level): ",
+                         "theta=log(",th,")"),
+          x = "Analysis type",
+          y = NULL
+        ) +
+        facet_grid(rows=vars(tau), cols=vars(dgm)) +
+        theme(
+          axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
+          legend.position = "none"
+        )
+
+      print(plot)
+
+    }
+
+  }
+
+  # Plot: Power
+  # Export: 800 x 500
+  if (which=="Power") {
+
+    ggplot(
+      data = plot_data,
+      aes(
+        x = theta_log,
+        y = power,
+        color = analysis_type
+      )
     ) +
-    geom_hline(
-      yintercept = log(0.5),
-      linetype = 2
-    ) +
-    labs(
-      title = "Average point estimates and CIs (~1,000 sims per level)",
-      x = "Analysis type",
-      y = NULL
-    ) +
-    facet_grid(rows=vars(tau), cols=vars(dgm)) +
-    theme(
-      axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
-      legend.position = "none"
-    )
-  #
+      geom_line(aes(group=analysis_type)) +
+      geom_point(size=0.9) +
+      labs(
+        title = "Power of CI-based hypothesis test (200 sims per level)",
+        x = "Theta",
+        color = "Analysis method",
+        y = NULL
+      ) +
+      scale_color_manual(values=c("grey4","red","blue","green","purple","lightblue")) +
+      facet_grid(rows=vars(tau), cols=vars(dgm)) +
+      theme(
+        axis.text.x = element_text(angle=90, hjust=0, vjust=0.4)
+      )
+
+  }
 
 }
 

@@ -9,7 +9,8 @@
 #'         - "2S LMM" (two-stage with linear mixed model in first stage)
 #'         - "2S HL" (two-stage with H-likelihood in first stage)
 #'         - "LMM IGN" (linear mixed model that ignores the delay)
-#'         - "LMM ATE" (linear mixed model that estimates the average Tx effect)
+#'         - "LMM ATE" (linear mixed model that estimates average Tx effect)
+#'         - "SS ATE" (smoothing spline model that estimates average Tx effect)
 #'         - "SPL" (linear spline model)
 #'         - "SS" (smoothing spline model)
 #'         - "WASH" ("washout" model)
@@ -18,9 +19,9 @@
 #'       Possible values of `params` include:
 #'         - For type="2S GEE", params should equal list(corr=c), where values
 #'           of `c` include "exchangeable" and "independence"
-#'         - For type="SS", params should equal list(type=t), where values of
-#'           `t` include 1 (smooth Tx effect only) and 2 (smooth Tx effect and
-#'           time trend)
+#'         - For type="SS" or type="SS ATE", params should equal list(type=t),
+#'           where values of `t` include 1 (smooth Tx effect only) and 2 (smooth
+#'           Tx effect and time trend)
 #'         - For type="WASH", params should equal list(length=k), where `k` is
 #'           the length of the washout period (i.e. the number of time steps to
 #'           discard).
@@ -220,7 +221,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   if (analysis$type=="LMM ATE") {
 
-    # !!!!! testing: START !!!!!
+    # !!!!! Need to incorporate binomial data
 
     model <- lmer(
       y ~ factor(j) + factor(l) + (1|i),
@@ -236,38 +237,36 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     sigma_l_hat <- sigma_l_hat[indices,indices]
     sigma_l_hat <- as.matrix(sigma_l_hat)
 
-    est <- mean(theta_l_hat)
-    se <- sqrt ( 1/(length(theta_l_hat)) * sum(sigma_l_hat) )
+    theta_hat <- mean(theta_l_hat)
+    se_theta_hat <- sqrt ( 1/(length(theta_l_hat)) * sum(sigma_l_hat) )
 
-    # !!!!! testing: END !!!!!
-
-    # Generate weights
-    weights <- c()
-    l_values <- unique(data$data$l)
-    for (lv in l_values) {
-      weights <- c(weights, nrow(data$data %>% filter(l==lv)))
-    }
-    weights <- 1/weights
-    weight_vec <- weights[(data$data$l+1)]
-
-    # Run GLMM
-    if (data_type=="normal") {
-      model <- lmer(
-        y ~ factor(j) + x_ij + (1|i),
-        weights = weight_vec,
-        data = data$data
-      )
-    } else if (data_type=="binomial") {
-      model <- glmer(
-        y ~ factor(j) + x_ij + (1|i),
-        data = data$data,
-        family = binomial(link="log")
-      )
-    }
+    # # Generate weights
+    # weights <- c()
+    # l_values <- unique(data$data$l)
+    # for (lv in l_values) {
+    #   weights <- c(weights, nrow(data$data %>% filter(l==lv)))
+    # }
+    # weights <- 1/weights
+    # weight_vec <- weights[(data$data$l+1)]
+    #
+    # # Run GLMM
+    # if (data_type=="normal") {
+    #   model <- lmer(
+    #     y ~ factor(j) + x_ij + (1|i),
+    #     weights = weight_vec,
+    #     data = data$data
+    #   )
+    # } else if (data_type=="binomial") {
+    #   model <- glmer(
+    #     y ~ factor(j) + x_ij + (1|i),
+    #     data = data$data,
+    #     family = binomial(link="log")
+    #   )
+    # }
 
     # Extract estimate and SE
-    theta_hat <- summary(model)$coefficients["x_ij",1]
-    se_theta_hat <- summary(model)$coefficients["x_ij",2]
+    # theta_hat <- summary(model)$coefficients["x_ij",1]
+    # se_theta_hat <- summary(model)$coefficients["x_ij",2]
 
     return (list(
       theta_hat = theta_hat,
@@ -475,6 +474,54 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
     theta_hat <- predict(model$gam, newdata=list(j=1, l=J-1), type = "terms")[2]
     se_theta_hat <- summary(model$gam)$se[[length(summary(model$gam)$se)]]
+
+    return (list(
+      theta_hat = theta_hat,
+      se_theta_hat = se_theta_hat
+    ))
+
+  }
+
+  if (analysis$type=="SS ATE") {
+
+    J <- L$n_time_points
+
+    if (analysis$params$t==1) {
+      model <- gamm(
+        y ~ factor(j) + s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
+        random = list(i=~1),
+        data = data$data
+      )
+    } else if (analysis$params$t==2) {
+      model <- gamm(
+        y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
+          s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
+        random = list(i=~1),
+        data = data$data
+      )
+    }
+
+    theta_hats <- sapply(c(1:(J-1)), function(l) {
+      predict(model$gam, newdata=list(j=1, l=l), type = "terms")[2]
+    })
+    se_theta_hats <- summary(model$gam)$se
+    indices <- c(1:length(se_theta_hats))[
+      str_sub(names(se_theta_hats),1,4)=="s(l)"
+    ]
+    se_theta_hats <- as.numeric(se_theta_hats[indices])
+    theta_hats <- c(0,theta_hats)
+    se_theta_hats <- c(0,se_theta_hats)
+
+    # Construct AUC estimator
+    lower <- theta_hats - 1.96*se_theta_hats
+    # upper <- theta_hats + 1.96*se_theta_hats
+    # theta_hat <- (sum(theta_hats) - 0.5*(theta_hats[1]+theta_hats[J])) / (J-1) # !!!!! This is the trapezoid estimate
+    theta_hat <- sum(theta_hats) / (J-1) # !!!!! This is the right-rectangle estimate
+    auc_lower <- sum(lower) / (J-1)
+    # auc_lower <- (sum(lower) - 0.5*(lower[1]+lower[J])) / (J-1)
+    # auc_upper <- sum(upper) / (J-1)
+    # auc_upper <- (sum(upper) - 0.5*(upper[1]+upper[J])) / (J-1)
+    se_theta_hat <- (theta_hat-auc_lower)/1.96 # !!!!! Hack; back-calculating SE
 
     return (list(
       theta_hat = theta_hat,
