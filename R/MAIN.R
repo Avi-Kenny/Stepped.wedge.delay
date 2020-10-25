@@ -10,14 +10,13 @@
 
 # Set working directory
 if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
-  setwd("C:/Users/avike/OneDrive/Desktop/Avi/Biostats + Research/Research/Jim Hughes/Project - Stepped wedge/z.stepped.wedge/R")
+  setwd("C:/Users/avike/OneDrive/Desktop/Avi/Biostats + Research/Research/Jim Hughes/Project - Stepped wedge lag/z.stepped.wedge/R")
 } else {
   setwd("z.stepped.wedge/R")
 }
 
 # Load packages
 {
-
   library(dplyr)
   library(magrittr)
   library(ggplot2)
@@ -31,7 +30,7 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
   library(restriktor)
   library(mgcv)
   library(scam)
-  # library(gamlss)
+  library(gamlss)
 }
 
 # Load functions
@@ -71,6 +70,8 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
 ###########################################################.
 
 if (FALSE) {
+
+  # !!!!! Swap this out with new SIMBA system for combining results
 
   # Merge *.simba files
   sims <- list.files(
@@ -120,6 +121,8 @@ if (FALSE) {
 if (FALSE) {
 
   # Generate dataset
+  # Exp model w/ theta=log(0.5) and d=1.4 --> ATE = -0.534
+  # Exp model w/ theta=log(0.5) and d=1.0 --> ATE = -0.578
   data <- generate_dataset(
     alpha = log(0.1),
     tau = 1,
@@ -128,9 +131,10 @@ if (FALSE) {
     n_time_points = 7,
     n_ind_per_cluster = 20,
     data_type = "normal",
-    sigma = 0.3,
+    sigma = 0.1, # 0.3
+    delay_model = list(type="parabola", params=list(a=(-1/16), b=(1/2), c=0))
     # delay_model = list(type="spline", params=list(knots=6, slopes=(1/6)))
-    delay_model = list(type="exp", params=list(d=1))
+    # delay_model = list(type="exp", params=list(d=1.4))
   )
 
   # Set number of time points
@@ -1273,58 +1277,113 @@ if (run_misc) {
     ifelse(x>0, (1-exp(-x/0)), 0)
   })
   d2 <- sapply(seq(0,6,0.1), function(x) {
-    ifelse(x>0,1,0) * (1-exp(-x/0.5))
-  })
-  d3 <- sapply(seq(0,6,0.1), function(x) {
     ifelse(x>0,1,0) * (1-exp(-x/1.4))
   })
-  d4 <- sapply(seq(0,6,0.1), function(x) {
+  d3 <- sapply(seq(0,6,0.1), function(x) {
     sw_spline(x=x, knots=c(1,6), slopes=c(0.8,0.04))
   })
-  d5 <- sapply(seq(0,6,0.1), function(x) {
+  d4 <- sapply(seq(0,6,0.1), function(x) {
     sw_spline(x=x, knots=c(2,4), slopes=c(0.1,0.4))
   })
-  d6 <- sapply(seq(0,6,0.1), function(x) {
-    sw_spline(x=x, knots=c(2,4), slopes=c(0.4,0.1))
+
+  # !!!!! Non-monotone parabola
+  d4 <- sapply(seq(0,6,0.1), function(x) {
+    (-1/16)*x^2 + (1/2)*x
   })
 
   # Plot functions
+  # Export: 800 x 300
   ggplot(
     data.frame(
-      x = rep(seq(0,6,0.1),6),
-      y = c(d1,d2,d3,d4,d5,d6),
+      x = rep(seq(0,6,0.1),4),
+      y = c(d1,d2,d3,d4),
       fn = rep(c(
         "Exp (d=0)",
-        "Exp (d=0.5)",
         "Exp (d=1.4)",
         "Spl (k=1,6 s=0.8,0.04)",
-        "Spl (k=2,4 s=0.1,0.4)",
-        "Spl (k=2,4 s=0.4,0.1)"
+        "Spl (k=2,4 s=0.1,0.4)"
       ), each=61)
     ),
     aes(x=x, y=y)
   ) +
     geom_line() +
-    facet_wrap(~fn, ncol=3) +
-    labs(x="Time (steps)", y="% effect achieved")
-
-  # Generate data
-  d7 <- sapply(seq(0,6,0.1), function(x) {
-    sw_spline(x=x, knots=c(6), slopes=c(1/6))
-  })
-
-  # Plot functions
-  ggplot(
-    data.frame(
-      x = seq(0,6,0.1),
-      y = d7
-    ),
-    aes(x=x, y=y)
-  ) +
-    geom_line() +
-    labs(x="Time (steps)", y="% effect achieved")
+    facet_wrap(~fn, ncol=4) +
+    labs(x="Time (steps)", y="% effect achieved", title="Delay models")
 
 }
+
+###########################################################.
+##### MISC: Plots to illustrate "modified X" approach #####
+###########################################################.
+
+if (run_misc) {
+
+  # Generate data
+  x <- rep(c(1,2,3,4,5,6), each=10)
+  x_mod <- c( rep(c(1,2,3), each=10), rep(4, 30) )
+  y <- pmin(x,4)^1.5+1 + rnorm(length(x))
+
+  # Scatterplot with original X-values
+  # Export: 500 x 400
+  spl1 <- gam(y~s(x,k=5,bs="cr"))
+  ggplot(data.frame(x=x,y=y), aes(x=x, y=y)) +
+    geom_point(alpha=0.3) +
+    xlim(c(1,6)) +
+    labs(title="Original X coordinates") +
+    geom_line(
+      aes(x=x2, y=y2),
+      data = data.frame(x2=x, y2=fitted(spl1)),
+      color = "forestgreen"
+    )
+
+  # Scatterplot with modified X-values
+  # Export: 500 x 400
+  spl2 <- gam(y~s(x_mod,k=4,bs="cr"))
+  ggplot(data.frame(x=x_mod, y=y), aes(x=x, y=y)) +
+    geom_point(alpha=0.3) +
+    xlim(c(1,6)) +
+    labs(title="Modified X coordinates") +
+    geom_line(
+      aes(x=x2, y=y2),
+      data = data.frame(x2=x, y2=fitted(spl2)),
+      color = "forestgreen"
+    )
+
+
+}
+
+
+
+#############################################.
+##### MISC: SW design diagram for paper #####
+#############################################.
+
+if (run_misc) {
+
+  library(ggpubr)
+
+  data <- generate_dataset(
+    alpha = log(0.1),
+    tau = 1,
+    theta = log(0.5),
+    n_clusters = 8,
+    n_time_points = 5,
+    n_ind_per_cluster = 10,
+    data_type = "normal",
+    sigma = 0.01,
+    delay_model = list(type="exp", params=list(d=1.4))
+  )
+
+  # Export: PDF 6"x3"
+  plot_sw_design(
+    data,
+    title = c("Stepped wedge design", "Parallel design"),
+    compare_to_parallel = TRUE
+  )
+
+}
+
+
 
 ################################.
 ##### MISC: Graphs for PPT #####

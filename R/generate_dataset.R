@@ -13,7 +13,8 @@
 #' @param delay_model A list containing `type` ("exp" or "spline") and `params`
 #'     (a list). For type="exp", params=list(d=d). For type="spline",
 #'     params=list(knots=k, slopes=s), where k and s are vectors (see
-#'     documentation for sw_spline function)
+#'     documentation for sw_spline function). For type="parabola",
+#'     params=list(a=a, b=b, c=c), corresponding to the parabola y=ax^2+bx+c
 #' @return A list containing the following: \cr
 #'     * `params`: a list of the parameters supplied in the function call \cr
 #'     * `data`: the resulting data frame
@@ -62,6 +63,16 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
           x = l,
           knots = delay_model$params$knots,
           slopes = delay_model$params$slopes
+        )
+      )
+
+    } else if (delay_model$type == "parabola") {
+
+      return (
+        theta * (
+          delay_model$params$a * l^2 +
+          delay_model$params$b * l +
+          delay_model$params$c
         )
       )
 
