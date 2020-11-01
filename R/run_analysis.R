@@ -54,30 +54,37 @@ run_analysis <- function(data, analysis, data_type, L, C) {
       model <- glmer(
         y ~ factor(j) + x_ij + (1|i),
         data = data$data,
-        family = binomial(link="log")
+        family = "binomial" # binomial(link="log")
       )
     }
 
     # Extract estimate and SE
-    theta_hat <- summary(model)$coefficients["x_ij",1]
-    se_theta_hat <- summary(model)$coefficients["x_ij",2]
+    ate_hat <- summary(model)$coefficients["x_ij",1] # same as theta_hat
+    se_ate_hat <- summary(model)$coefficients["x_ij",2] # same as se_theta_hat
 
     return (list(
-      theta_hat = theta_hat,
-      se_theta_hat = se_theta_hat
+      ate_hat = ate_hat,
+      se_ate_hat = se_ate_hat
     ))
 
   }
 
   if (analysis$type=="LMM ATE") {
 
-    # !!!!! Need to incorporate binomial data
+    # Run GLMM
+    if (data_type=="normal") {
+      model <- lmer(
+        y ~ factor(j) + factor(l) + (1|i),
+        data = data$data
+      )
+    } else if (data_type=="binomial") {
+      model <- glmer(
+        y ~ factor(j) + factor(l) + (1|i),
+        data = data$data,
+        family = "binomial" # binomial(link="log")
+      )
+    }
 
-    model <- lmer(
-      y ~ factor(j) + factor(l) + (1|i),
-      data = data$data,
-      REML = TRUE
-    )
     coeff_names <- names(summary(model)$coefficients[,1])
     theta_l_hat <- as.numeric(summary(model)$coefficients[,1])
     sigma_l_hat <- vcov(model)
@@ -90,12 +97,12 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     # Trapezoid sum: sum of first len-1 values plus half the last value
     len <- length(theta_l_hat)
     A <- matrix(c(rep(1/len,len-1),(1/len)/2), nrow=1)
-    theta_hat <- (A %*% theta_l_hat)[1,1]
-    se_theta_hat <- sqrt(A %*% sigma_l_hat %*% t(A))[1,1]
+    ate_hat <- (A %*% theta_l_hat)[1,1]
+    se_ate_hat <- sqrt(A %*% sigma_l_hat %*% t(A))[1,1]
 
     return (list(
-      theta_hat = theta_hat,
-      se_theta_hat = se_theta_hat
+      ate_hat = ate_hat,
+      se_ate_hat = se_ate_hat
     ))
 
   }
@@ -104,40 +111,60 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
     J <- L$n_time_points
 
-    if (analysis$params$t==1) {
-      model <- gamm(
-        y ~ factor(j) + s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
-        random = list(i=~1),
-        data = data$data
-      )
-    } else if (analysis$params$t==2) {
-      model <- gamm(
-        y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
-          s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
-        random = list(i=~1),
-        data = data$data
-      )
+    if (data_type=="normal") {
+      if (analysis$params$t==1) {
+        model <- gamm(
+          y ~ factor(j) + s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
+          random = list(i=~1),
+          data = data$data
+        )
+      } else if (analysis$params$t==2) {
+        model <- gamm(
+          y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
+            s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
+          random = list(i=~1),
+          data = data$data
+        )
+      }
+    } else if (data_type=="binomial") {
+
+      if (analysis$params$t==1) {
+        model <- gamm(
+          y ~ factor(j) + s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
+          random = list(i=~1),
+          data = data$data,
+          family = "binomial" # binomial(link="log")
+        )
+      } else if (analysis$params$t==2) {
+        model <- gamm(
+          y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
+            s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
+          random = list(i=~1),
+          data = data$data,
+          family = "binomial" # binomial(link="log")
+        )
+      }
+
     }
 
-    theta_hats <- sapply(c(1:(J-1)), function(l) {
+    theta_l_hat <- sapply(c(1:(J-1)), function(l) {
       predict(model$gam, newdata=list(j=1, l=l), type = "terms")[2]
     })
-    se_theta_hats <- summary(model$gam)$se
-    indices <- c(1:length(se_theta_hats))[
-      str_sub(names(se_theta_hats),1,4)=="s(l)"
-      ]
-    se_theta_hats <- as.numeric(se_theta_hats[indices])
+    sigma_l_hat <- vcov(model$gam, freq=FALSE) # freq=TRUE seems to make little difference
+    coeff_names <- dimnames(sigma_l_hat)[[1]]
+    indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,4)=="s(l)"]
+    coeff_names <- coeff_names[indices]
+    sigma_l_hat <- sigma_l_hat[indices,indices]
 
     # Trapezoid sum: sum of first len-1 values plus half the last value
-    # !!!!! Covariances ares currently being ignored
-    len <- length(theta_hats)
+    len <- length(theta_l_hat)
     A <- matrix(c(rep(1/len,len-1),(1/len)/2), nrow=1)
-    theta_hat <- (A %*% theta_hats)[1,1]
-    se_theta_hat <- sqrt(A %*% diag(se_theta_hats^2) %*% t(A))[1,1]
+    ate_hat <- (A %*% theta_l_hat)[1,1]
+    se_ate_hat <- sqrt(A %*% sigma_l_hat %*% t(A))[1,1]
 
     return (list(
-      theta_hat = theta_hat,
-      se_theta_hat = se_theta_hat
+      ate_hat = ate_hat,
+      se_ate_hat = se_ate_hat
     ))
 
   }
@@ -167,20 +194,19 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     spline_vals %<>% mutate(
       spl_fit = spl_fit - subtract
     )
-    theta_hats <- (spline_vals %>% filter(l!=0))$spl_fit
+    theta_l_hat <- (spline_vals %>% filter(l!=0))$spl_fit
     se_theta_hats <- (spline_vals %>% filter(l!=0))$spl_se
 
     # Trapezoid sum: sum of first len-1 values plus half the last value
-    # !!!!! This code same as above
-    # !!!!! Covariances ares currently being ignored
-    len <- length(theta_hats)
+    # !!!!! Covariances ares currently being ignored; need entire covariance mtx
+    len <- length(theta_l_hat)
     A <- matrix(c(rep(1/len,len-1),(1/len)/2), nrow=1)
-    theta_hat <- (A %*% theta_hats)[1,1]
-    se_theta_hat <- sqrt(A %*% diag(se_theta_hats^2) %*% t(A))[1,1]
+    ate_hat <- (A %*% theta_l_hat)[1,1]
+    se_ate_hat <- sqrt(A %*% diag(se_theta_hats^2) %*% t(A))[1,1]
 
     return (list(
-      theta_hat = theta_hat,
-      se_theta_hat = se_theta_hat
+      ate_hat = ate_hat,
+      se_ate_hat = se_ate_hat
     ))
 
   }
@@ -210,20 +236,19 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     spline_vals %<>% mutate(
       spl_fit = spl_fit - subtract
     )
-    theta_hats <- (spline_vals %>% filter(l!=0))$spl_fit
+    theta_l_hat <- (spline_vals %>% filter(l!=0))$spl_fit
     se_theta_hats <- (spline_vals %>% filter(l!=0))$spl_se
 
     # Trapezoid sum: sum of first len-1 values plus half the last value
-    # !!!!! This code same as above
-    # !!!!! Covariances ares currently being ignored
-    len <- length(theta_hats)
+    # !!!!! Covariances ares currently being ignored; need entire covariance mtx
+    len <- length(theta_l_hat)
     A <- matrix(c(rep(1/len,len-1),(1/len)/2), nrow=1)
-    theta_hat <- (A %*% theta_hats)[1,1]
-    se_theta_hat <- sqrt(A %*% diag(se_theta_hats^2) %*% t(A))[1,1]
+    ate_hat <- (A %*% theta_l_hat)[1,1]
+    se_ate_hat <- sqrt(A %*% diag(se_theta_hats^2) %*% t(A))[1,1]
 
     return (list(
-      theta_hat = theta_hat,
-      se_theta_hat = se_theta_hat
+      ate_hat = ate_hat,
+      se_ate_hat = se_ate_hat
     ))
 
   }
@@ -567,14 +592,14 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
     if (analysis$params$t==1) {
       model <- gamm(
-        y ~ factor(j) + s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
+        y ~ factor(j) + s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
         random = list(i=~1),
         data = data$data
       )
     } else if (analysis$params$t==2) {
       model <- gamm(
         y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
-          s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
+          s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
         random = list(i=~1),
         data = data$data
       )
@@ -674,22 +699,22 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     # {
     #   model <- gamm(
     #     y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
-    #       s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
+    #       s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
     #     random = list(i=~1),
     #     data = data$data
     #   )
-    #   theta_hats <- sapply(c(1:(J-1)), function(l) {
+    #   theta_l_hat <- sapply(c(1:(J-1)), function(l) {
     #     predict(model$gam, newdata=list(j=1, l=l), type = "terms")[2]
     #   })
     # }
 
     model <- scam(
       y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
-        s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
+        s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
       # random = list(i=~1),
       data = data$data
     )
-    theta_hats <- sapply(c(1:(J-1)), function(l) {
+    theta_l_hat <- sapply(c(1:(J-1)), function(l) {
       predict(model, newdata=list(j=1, l=l), type = "terms")[2]
       # predict(model$gam, newdata=list(j=1, l=l), type = "terms")[2]
     })
@@ -714,7 +739,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
       ggplot(
         data.frame(
           x = c(seq(0,6,0.1),c(1:6)),
-          y = c(log(0.5)*d1, theta_hats),
+          y = c(log(0.5)*d1, theta_l_hat),
           fn = c(rep("Parabola",61), rep("Estimates",6))
         ),
         aes(x=x, y=y, color=fn)
@@ -849,7 +874,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     #   ggplot(
     #     data.frame(
     #       x = c(seq(0,6,0.1),c(1:6)),
-    #       y = c(log(0.5)*d1, theta_hats), # theta_l_hat
+    #       y = c(log(0.5)*d1, theta_l_hat),
     #       fn = c(rep("Parabola",61), rep("Estimates",6))
     #     ),
     #     aes(x=x, y=y, color=fn)
@@ -946,14 +971,14 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
     model2 <- gamm(
       y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
-        s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
+        s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
       random = list(i=~1),
       data = data$data
     )
 
     model2 <- gamm(
       y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
-        s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0), # !!!!! Should this be J-1?
+        s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
       random = list(i=~1),
       data = data$data
     )

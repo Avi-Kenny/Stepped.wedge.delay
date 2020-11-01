@@ -96,7 +96,9 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
       if (data_type=="normal") {
         y_ij <- alpha + beta_js[j] + theta_l*x_ij + v_i
       } else if (data_type=="binomial") {
-        y_ij <- exp(alpha + beta_js[j] + theta_l*x_ij + v_i)
+        expit <- function(x) {1/(exp(-x)+1)}
+        y_ij <- expit(alpha + beta_js[j] + theta_l*x_ij + v_i) # !!!!! Should we use exp() or expit() ?????
+        # y_ij <- exp(alpha + beta_js[j] + theta_l*x_ij + v_i)
       } else {
         stop ("`data_type` must be either 'normal' or 'binomial'")
       }
@@ -104,22 +106,17 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
       k <- n_ind_per_cluster
       if (data_type=="normal") {
         y <- y_ij + rnorm(k, mean=0, sd=sigma)
-        # !!!!! This table is too bulky
         data <- rbind(data, data.frame(cbind(
           i=rep(i,k), j=rep(j,k), k=c(1:k), l=rep(l,k), v_i=rep(v_i,k),
           y_ij=rep(y_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y
         )))
       } else if (data_type=="binomial") {
         if (y_ij>1) {
+          # Only possible if using exp() link instead of expit()
+          warning(paste0("Probability y_ij=",y_ij,", so y_ij was set to 1"))
           y_ij <- 1
-          # warning("Probability y_ij was >1 so it was set to 1")
-        }
-        if (y_ij<0) {
-          y_ij <- 0
-          # warning("Probability y_ij was <0 so it was set to 0")
         }
         y <- rbinom(n=k, size=1, prob=y_ij)
-        # !!!!! This table is too bulky
         data <- rbind(data, data.frame(cbind(
           i=rep(i,k), j=rep(j,k), k=c(1:k), l=rep(l,k), v_i=rep(v_i,k),
           y_ij=rep(y_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y

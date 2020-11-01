@@ -1,10 +1,8 @@
 #' Run a single simulation
 #'
-#' @param L Passed via simba; list of simulation levels
-#' @param C Passed via simba; list of simulation constants
 #' @return The list created by `run_analysis`
 #' @export
-one_simulation <- function(L,C) {
+one_simulation <- function() {
 
   # Generate dataset
   data <- generate_dataset(

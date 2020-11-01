@@ -1,6 +1,6 @@
 # Title: "Stepped wedge lagged effect simulation"
 # Author: Avi Kenny
-# Date: 2020-05-26
+# Date: 2020-10-25
 
 
 
@@ -13,24 +13,6 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
   setwd("C:/Users/avike/OneDrive/Desktop/Avi/Biostats + Research/Research/Jim Hughes/Project - Stepped wedge lag/z.stepped.wedge/R")
 } else {
   setwd("z.stepped.wedge/R")
-}
-
-# Load packages
-{
-  library(dplyr)
-  library(magrittr)
-  library(ggplot2)
-  library(lme4)
-  library(geepack)
-  library(car)
-  library(stringr)
-  library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
-  library(parallel)
-  library(glmmTMB)
-  library(restriktor)
-  library(mgcv)
-  library(scam)
-  library(gamlss)
 }
 
 # Load functions
@@ -46,9 +28,10 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
 
 # Set code blocks to run
 {
-  run_setup <- TRUE
+  run_packages_local <- FALSE
+  run_main <- TRUE
   run_main_lte <- FALSE
-  run_main_power <- TRUE
+  run_main_power <- FALSE
   run_process_results <- FALSE
   run_viz <- FALSE
   run_tables3 <- FALSE
@@ -65,76 +48,40 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
 
 
 
-###########################################################.
-##### Compile simulation results into a single object #####
-###########################################################.
-
-if (FALSE) {
-
-  # !!!!! Swap this out with new SIMBA system for combining results
-
-  # Merge *.simba files
-  sims <- list.files(
-    path = "../simba.out/simba.out",
-    pattern = "*.simba",
-    full.names = TRUE,
-    recursive = FALSE
-  )
-  print(length(sims))
-
-  # Merge into blocks of simulation objects
-  block_size <- 200
-  num_blocks <- ceiling(length(sims)/block_size)
-  sim_blocks_merged <- list()
-  for (block in c(1:num_blocks)) {
-
-    from <- block_size*(block-1)+1
-    to <- min(block_size*block, length(sims))
-    sim_block <- sims[from:to]
-
-    sim <- NULL
-    for (s in sim_block) {
-      s <- readRDS(s)
-      if (is.null(sim)) { sim <- s } else { sim <- merge(sim, s) }
-    }
-    sim_blocks_merged[[block]] <- sim
-  }
-
-  # Merge blocks into single simulation object
-  sim <- sim_blocks_merged[[1]]
-  if (length(sim_blocks_merged)>1) {
-    for (block in 2:length(sim_blocks_merged)) {
-      sim <- merge(sim, sim_blocks_merged[[block]])
-    }
-  }
-
-  saveRDS(sim, file="../simba.out/sim_power_728.simba")
-
-}
-
-
-
 ###################################################################.
 ##### TESTING: Generate code for testing new analysis methods #####
 ###################################################################.
 
 if (FALSE) {
 
-  # Generate dataset
+  # Generate dataset (normal data)
   # Exp model w/ theta=log(0.5) and d=1.4 --> ATE = -0.534
   # Exp model w/ theta=log(0.5) and d=1.0 --> ATE = -0.578
   data <- generate_dataset(
     alpha = log(0.1),
     tau = 1,
     theta = log(0.5),
-    n_clusters = 12,
+    n_clusters = 24,
     n_time_points = 7,
     n_ind_per_cluster = 20,
     data_type = "normal",
     sigma = 0.1, # 0.3
-    delay_model = list(type="parabola", params=list(a=(-1/16), b=(1/2), c=0))
+    # delay_model = list(type="parabola", params=list(a=(-1/16), b=(1/2), c=0))
     # delay_model = list(type="spline", params=list(knots=6, slopes=(1/6)))
-    # delay_model = list(type="exp", params=list(d=1.4))
+    delay_model = list(type="exp", params=list(d=1.4))
+  )
+
+  # Generate dataset (binomial data)
+  # Exp model w/ theta=log(0.5) and d=1.4 --> ATE = -0.534
+  data <- generate_dataset(
+    alpha = log(0.1),
+    tau = 1,
+    theta = log(0.5),
+    n_clusters = 24,
+    n_time_points = 7,
+    n_ind_per_cluster = 50,
+    data_type = "binomial",
+    delay_model = list(type="exp", params=list(d=1.4))
   )
 
   # Set number of time points
@@ -144,70 +91,121 @@ if (FALSE) {
 
 
 
-###################################.
-##### SETUP: Simulation setup #####
-###################################.
+########################################.
+##### SETUP: Load packages locally #####
+########################################.
 
-if (run_setup) {
+if (run_packages_local) {
 
-  # Set up and configure simba object
-  sim <- new_sim()
-  sim %<>% set_config(
-    num_sim = 200, # !!!!!
-    parallel = "none",
-    packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
-                 "glmmTMB", "restriktor", "mgcv", "scam")
-    # stop_at_error = TRUE
+  library(dplyr)
+  library(magrittr)
+  library(ggplot2)
+  library(lme4)
+  library(geepack)
+  library(car)
+  library(stringr)
+  library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
+  library(parallel)
+  library(glmmTMB)
+  library(restriktor)
+  library(mgcv)
+  library(scam)
+  library(gamlss)
+
+}
+
+
+
+#################################.
+##### MAIN: Main simulation #####
+#################################.
+
+# sbatch --export=run='first',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
+# sbatch --depend=afterok:11 --array=1-15 --export=cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
+# sbatch --depend=afterok:12 --export=run='last',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
+
+if (run_main) {
+
+  library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
+  library(magrittr)
+
+  run_on_cluster(
+
+    first = {
+
+      # Set up and configure simba object
+      sim <- new_sim()
+      sim %<>% set_config(
+        num_sim = 1000, # !!!!!
+        parallel = "cluster",
+        packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
+                     "glmmTMB", "restriktor", "mgcv", "scam", "gamlss")
+      )
+      sim %<>% add_constants(
+        alpha = log(0.1)
+      )
+
+      # Add functions to simba object
+      sim %<>% add_creator(generate_dataset)
+      sim %<>% add_script(one_simulation)
+
+      # Set levels
+      sim %<>% set_levels(
+        n_clusters = c(24,48),
+        n_time_points = 7,
+        n_ind_per_cluster = 50, # c(20,50)
+        theta = c(log(0.1), log(0.3), log(0.5)), # log(0.5)
+        tau = 1, # c(0,1)
+        sigma = 3, # !!!!! choose this to match binomial variance
+        data_type = c("normal","binomial"),
+        analysis = list(
+          "LMM IGN" = list(type="LMM IGN"),
+          "LMM ATE" = list(type="LMM ATE"),
+          "SS ATE" = list(type="SS ATE", params=list(t=1))
+          # "SS ATE 2" = list(type="SS ATE 2"),
+          # "MSS" = list(type="MSS")
+        ),
+        delay_model = list(
+          "EXP (d=0)" = list(type="exp", params=list(d=0)),
+          "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
+          "SPL (k=2,4 s=0.1,0.4)" = list(
+            type = "spline",
+            params = list(knots=c(2,4),slopes=c(0.1,0.4))
+          )
+        )
+      )
+
+      # ARCHIVE: other levels
+      # "2S LMM" = list(type="2S LMM", params=list(REML=T)),
+      # "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
+      # "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
+      # "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
+      # "WASH 1" = list(type="WASH", params=list(length=1)),
+      # "WASH 2" = list(type="WASH", params=list(length=2)),
+      # "Last" = list(type="Last"),
+      # "Smooth 1" = list(type="SS", params=list(t=1)),
+      # "Smooth 2" = list(type="SS", params=list(t=2)),
+
+      # ARCHIVE: other delay models
+      # "Linear" = list(type="spline", params=list(knots=6, slopes=(1/6))),
+      # "SPL (k=1,6 s=0.8,0.04)" = list(
+      #   type = "spline",
+      #   params = list(knots=c(1,6),slopes=c(0.8,0.04))
+      # ),
+
+    },
+
+    main = { sim %<>% run("one_simulation") },
+
+    last = { sim %>% summary() %>% print() },
+
+    cluster_config = list(
+      sim_var = "sim",
+      js = "slurm",
+      dir = "/home/akenny/z.stepped.wedge"
+    )
+
   )
-  sim %<>% add_constants(
-    alpha = log(0.1)
-  )
-
-  # Negative log lik corresponding to two-stage dissertation approach
-  sim %<>% add_method(
-    "neg_log_lik",
-    function(theta, d, J, theta_l_hat, sigma_l_hat) {
-
-      l_times <- 1:(J-1)
-      mu_d <- 1-exp(-l_times/d)
-      log_lik <- -0.5 * t(theta_l_hat - theta*mu_d) %*%
-        solve(sigma_l_hat) %*% (theta_l_hat - theta*mu_d)
-
-      return (-1*log_lik)
-
-    }
-  )
-
-  # Negative log lik corresponding to two-stage spline approach
-  sim %<>% add_method(
-    "neg_log_lik_spl",
-    function(theta, p_x, p_y, J, theta_l_hat, sigma_l_hat) {
-
-      # !!!!! g_x hard-coded for now
-      g_x <- J
-
-      l_times <- 1:(J-1)
-      mu_spl <- sapply(l_times, function(l) {
-        I1 <- ifelse(0<l & l<=p_x, 1, 0)
-        I2 <- ifelse(p_x<l & l<=g_x, 1, 0)
-        I3 <- ifelse(g_x<l, 1, 0)
-        (p_y/p_x)*l*I1 + ((1-p_y)*l+g_x+p_y-p_x-1)/(g_x-p_x)*I2 + I3
-      })
-
-      log_lik <- -0.5 * t(theta_l_hat - theta*mu_spl) %*%
-        solve(sigma_l_hat) %*% (theta_l_hat - theta*mu_spl)
-
-      return (-1*log_lik)
-
-    }
-  )
-
-  # Add functions to simba object
-  sim %<>% add_creator(generate_dataset)
-  sim %<>% add_script(one_simulation)
-
-  # Create directory to store results
-  if (!file.exists("../simba.out")) { dir.create("../simba.out") }
 
 }
 
@@ -219,47 +217,47 @@ if (run_setup) {
 
 if (run_main_lte) {
 
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = 48,
-    n_time_points = 7,
-    n_ind_per_cluster = 50,
-    theta = log(0.5),
-    tau = c(0,1),
-    sigma = 3,
-    data_type = "normal",
-    analysis = list(
-      "2S LMM" = list(type="2S LMM", params=list(REML=T)),
-      "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
-      "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
-      "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
-      "LMM IGN" = list(type="LMM IGN"),
-      "WASH 1" = list(type="WASH", params=list(length=1)),
-      "WASH 2" = list(type="WASH", params=list(length=2)),
-      "Last" = list(type="Last"),
-      "Smooth 1" = list(type="SS", params=list(t=1)),
-      "Smooth 2" = list(type="SS", params=list(t=2)),
-      "MSS" = list(type="MSS")
-      # "LMM ATE" = list(type="LMM ATE")
-    ),
-    delay_model = list(
-      "EXP (d=0)" = list(type="exp", params=list(d=0)),
-      "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
-      "SPL (k=1,6 s=0.8,0.04)" = list(
-        type = "spline",
-        params = list(knots=c(1,6),slopes=c(0.8,0.04))
-      ),
-      "SPL (k=2,4 s=0.1,0.4)" = list(
-        type = "spline",
-        params = list(knots=c(2,4),slopes=c(0.1,0.4))
-      )
-      # "Linear" = list(type="spline", params=list(knots=6, slopes=(1/6)))
-    )
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+  # # Set levels
+  # sim %<>% set_levels(
+  #   n_clusters = 48,
+  #   n_time_points = 7,
+  #   n_ind_per_cluster = 50,
+  #   theta = log(0.5),
+  #   tau = c(0,1),
+  #   sigma = 3,
+  #   data_type = "normal",
+  #   analysis = list(
+  #     "2S LMM" = list(type="2S LMM", params=list(REML=T)),
+  #     "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
+  #     "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
+  #     "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
+  #     "LMM IGN" = list(type="LMM IGN"),
+  #     "WASH 1" = list(type="WASH", params=list(length=1)),
+  #     "WASH 2" = list(type="WASH", params=list(length=2)),
+  #     "Last" = list(type="Last"),
+  #     "Smooth 1" = list(type="SS", params=list(t=1)),
+  #     "Smooth 2" = list(type="SS", params=list(t=2)),
+  #     "MSS" = list(type="MSS")
+  #     # "LMM ATE" = list(type="LMM ATE")
+  #   ),
+  #   delay_model = list(
+  #     "EXP (d=0)" = list(type="exp", params=list(d=0)),
+  #     "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
+  #     "SPL (k=1,6 s=0.8,0.04)" = list(
+  #       type = "spline",
+  #       params = list(knots=c(1,6),slopes=c(0.8,0.04))
+  #     ),
+  #     "SPL (k=2,4 s=0.1,0.4)" = list(
+  #       type = "spline",
+  #       params = list(knots=c(2,4),slopes=c(0.1,0.4))
+  #     )
+  #     # "Linear" = list(type="spline", params=list(knots=6, slopes=(1/6)))
+  #   )
+  # )
+  #
+  # # Run simulation and save output
+  # sim %<>% run("one_simulation", sim_uids=.tid)
+  # saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
 }
 
@@ -271,89 +269,303 @@ if (run_main_lte) {
 
 if (run_main_power) {
 
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = 48,
-    n_time_points = 7,
-    n_ind_per_cluster = 50,
-    theta = log(c(0.5,0.6,0.7,0.8,0.9,1.0)),
-    tau = c(0,1),
-    sigma = 3,
-    data_type = "normal",
-    analysis = list(
-      # "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
-      # "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
-      # "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
-      "LMM IGN" = list(type="LMM IGN"),
-      # "WASH 1" = list(type="WASH", params=list(length=1)),
-      # "WASH 2" = list(type="WASH", params=list(length=2)),
-      # "Last" = list(type="Last"),
-      # "Smooth 1" = list(type="SS", params=list(t=1)),
-      "Smooth 2" = list(type="SS", params=list(t=2)),
-      "LMM ATE" = list(type="LMM ATE"),
-      "SS ATE" = list(type="SS ATE", params=list(t=2))
-    ),
-    delay_model = list(
-      "EXP (d=0)" = list(type="exp", params=list(d=0)),
-      "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
-      "SPL (k=1,6 s=0.8,0.04)" = list(
-        type = "spline",
-        params = list(knots=c(1,6),slopes=c(0.8,0.04))
-      ),
-      "SPL (k=2,4 s=0.1,0.4)" = list(
-        type = "spline",
-        params = list(knots=c(2,4),slopes=c(0.1,0.4))
-      )
-    )
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+  # # Set levels
+  # sim %<>% set_levels(
+  #   n_clusters = 48,
+  #   n_time_points = 7,
+  #   n_ind_per_cluster = 50,
+  #   theta = log(c(0.5,0.6,0.7,0.8,0.9,1.0)),
+  #   tau = c(0,1),
+  #   sigma = 3,
+  #   data_type = "normal",
+  #   analysis = list(
+  #     # "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
+  #     # "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
+  #     # "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
+  #     "LMM IGN" = list(type="LMM IGN"),
+  #     # "WASH 1" = list(type="WASH", params=list(length=1)),
+  #     # "WASH 2" = list(type="WASH", params=list(length=2)),
+  #     # "Last" = list(type="Last"),
+  #     # "Smooth 1" = list(type="SS", params=list(t=1)),
+  #     "Smooth 2" = list(type="SS", params=list(t=2)),
+  #     "LMM ATE" = list(type="LMM ATE"),
+  #     "SS ATE" = list(type="SS ATE", params=list(t=2))
+  #   ),
+  #   delay_model = list(
+  #     "EXP (d=0)" = list(type="exp", params=list(d=0)),
+  #     "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
+  #     "SPL (k=1,6 s=0.8,0.04)" = list(
+  #       type = "spline",
+  #       params = list(knots=c(1,6),slopes=c(0.8,0.04))
+  #     ),
+  #     "SPL (k=2,4 s=0.1,0.4)" = list(
+  #       type = "spline",
+  #       params = list(knots=c(2,4),slopes=c(0.1,0.4))
+  #     )
+  #   )
+  # )
+  #
+  # # Run simulation and save output
+  # sim %<>% run("one_simulation", sim_uids=.tid)
+  # saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
 }
 
 
 
-###############################################.
-##### MAIN: Process sim results (LTE+ATE) #####
-###############################################.
+#####################################.
+##### MAIN: Process sim results #####
+#####################################.
 
 if (run_process_results) {
 
-  sim <- readRDS("../simba.out/sim_main_708.simba")
+  # Read in simulation object
+  sim <- readRDS("../simba.out/sim_main_1026.simba")
+
+  # Generate true ATE value
+  sim$results %<>% mutate(
+    ate = ifelse(delay_model=="EXP (d=0)", round(theta*1,4),
+          ifelse(delay_model=="EXP (d=1.4)", round(theta*0.77,4),
+          ifelse(delay_model=="SPL (k=2,4 s=0.1,0.4)", round(theta*0.57,4),
+                 999)))
+  )
+
+  # Summarize data
   summ <- summary(
     sim_obj = sim,
     mean = list(all=TRUE, na.rm=TRUE),
+    quantile = list(
+      list(name="q025_ate", x="ate_hat", prob=0.025, na.rm=TRUE),
+      list(name="q975_ate", x="ate_hat", prob=0.975, na.rm=TRUE)
+    ),
     coverage = list(
       list(
-        name = "cov_theta",
-        truth = "theta",
-        estimate = "theta_hat",
-        se = "se_theta_hat",
+        name = "cov_ate",
+        truth = "ate",
+        estimate = "ate_hat",
+        se = "se_ate_hat",
         na.rm = TRUE
       ),
       list(
         name = "beta",
         truth = 0,
-        estimate = "theta_hat",
-        se = "se_theta_hat",
+        estimate = "ate_hat",
+        se = "se_ate_hat",
         na.rm = TRUE
       )
     )
   )
 
-  print(
-    summ %>% mutate(
-      bias_p = 100*round((mean_theta_hat-theta)/abs(theta),3),
-      cov_theta = 100 * round(cov_theta,2),
-      mean_se_theta_hat = round(mean_se_theta_hat,2),
-      power = 1 - beta
-    ) %>%
-      subset(select=c(delay_model, tau, analysis, theta, mean_theta_hat,
-                      bias_p, mean_se_theta_hat, cov_theta, power)) %>%
-      arrange(delay_model, tau, analysis)
+  # Transform summary data
+  summ %<>% mutate(
+    analysis = factor(analysis, levels=c(
+      "LMM IGN", "LMM ATE", "SS ATE", "SS ATE 2", "MSS"
+    )),
+    power = 1 - beta
   )
+
+  # print(
+  #   summ %>% mutate(
+  #     bias_p = 100*round((mean_theta_hat-theta)/abs(theta),3),
+  #     cov_theta = 100 * round(cov_theta,2),
+  #     mean_se_theta_hat = round(mean_se_theta_hat,2),
+  #     power = 1 - beta
+  #   ) %>%
+  #     subset(select=c(delay_model, tau, analysis, theta, mean_theta_hat,
+  #                     bias_p, mean_se_theta_hat, cov_theta, power)) %>%
+  #     arrange(delay_model, tau, analysis)
+  # )
+
+}
+
+
+
+############################################.
+##### VIZ: Point estimates + quantiles #####
+############################################.
+
+if (run_viz) {
+
+  # Export: 800 x 400
+  ggplot(
+    data = summ,
+    aes(
+      x = analysis,
+      y = mean_ate_hat,
+      color = analysis,
+      ymin = q025_ate,
+      ymax = q975_ate
+    )
+  ) +
+    geom_hline(
+      mapping = aes(yintercept=mean_ate),
+      linetype = 2
+    ) +
+    geom_point(size=2)+
+    geom_errorbar(
+      aes(
+        ymin = q025_ate,
+        ymax = q975_ate,
+        color = analysis
+      ),
+      width = 0.2,
+      cex = 1
+    ) +
+    labs(
+      title = paste("Average point estimates and 2.5%/97.5% quantiles (1,000",
+                    "sims per level): theta=log(0.5), tau=1"),
+      x = "Analysis type",
+      y = NULL
+    ) +
+    # coord_cartesian(ylim=c(-1,0)) +
+    facet_wrap(~delay_model, ncol=3) +
+    # facet_grid(rows=vars(date), cols=vars(dgm)) +
+    theme(
+      axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
+      legend.position = "none"
+    ) +
+    scale_color_manual(values = c("turquoise", "salmon", "dodgerblue2", "green3", "darkorchid2"))
+
+}
+
+
+
+#########################.
+##### VIZ: Coverage #####
+#########################.
+
+if (run_viz) {
+
+  # Export: 800 x 400
+  ggplot(
+    data = summ,
+    aes(
+      x = analysis,
+      y = cov_ate,
+      color = analysis
+    )
+  ) +
+    geom_hline(
+      mapping = aes(yintercept=0.95),
+      linetype = 2
+    ) +
+    geom_point(size=2)+
+    labs(
+      title = paste("Coverage (1,000",
+                    "sims per level): theta=log(0.5), tau=1"),
+      x = "Analysis type",
+      y = NULL
+    ) +
+    # coord_cartesian(ylim=c(-1,0)) +
+    facet_wrap(~delay_model, ncol=3) +
+    # facet_grid(rows=vars(date), cols=vars(dgm)) +
+    theme(
+      axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
+      legend.position = "none"
+    ) +
+    scale_color_manual(values = c("turquoise", "salmon", "dodgerblue2", "green3", "darkorchid2"))
+
+}
+
+
+
+############################################.
+##### MAIN: New visualizations (10/26) #####
+############################################.
+
+if (run_viz) {
+
+  plot_data <- data.frame(
+    "dgm" = character(),
+    "date" = character(),
+    "analysis_type" = character(),
+    "estimate" = double(),
+    "se" = double(),
+    "power" = double(),
+    stringsAsFactors = FALSE
+  )
+
+  sim <- readRDS("../simba.out/sim_main_1026.simba")
+  summ <- summary(
+    sim_obj = sim,
+    mean = list(all=TRUE, na.rm=TRUE),
+    coverage = list(
+      name = "beta",
+      truth = 0,
+      estimate = "ate_hat",
+      se = "se_ate_hat"
+    )
+  )
+
+  for (i in 1:nrow(summ)) {
+    plot_data[nrow(plot_data)+1,] <- list(
+      "dgm" = summ[i,"delay_model"],
+      "date" = "10/26",
+      "analysis_type" = summ[i,"analysis"],
+      "estimate" = summ[i,"mean_ate_hat"],
+      "se" = summ[i,"mean_se_ate_hat"],
+      "power" = 1 - summ[i,"beta"]
+    )
+  }
+
+  plot_data %<>% mutate(
+    analysis_type = ifelse(analysis_type=="LMM IGN", "LMM Ign", analysis_type)
+  )
+
+  plot_data %<>% mutate(
+    analysis_type = factor(analysis_type, levels=c(
+      "LMM Ign", "LMM Ign", "SS ATE", "SS ATE 2", "MSS"
+    ))
+  )
+
+  # Plot: Estimates and CIs
+  # Export: 800 x 400
+  ggplot(
+    data = plot_data,
+    aes(
+      x = analysis_type,
+      y = estimate,
+      color = analysis_type,
+      ymin = estimate-(1.96*se),
+      ymax = estimate-(1.96*se)
+    )
+  ) +
+    geom_hline(
+      mapping = aes(yintercept=y),
+      data = data.frame(
+        dgm = c("EXP (d=0)", "EXP (d=1.4)", "SPL (k=2,4 s=0.1,0.4)"),
+        y = c(log(0.5)*1, log(0.5)*0.77, log(0.5)*0.57)
+      ),
+      linetype = 2
+    ) +
+    geom_point(aes(color=analysis_type), size=2)+
+    geom_errorbar(
+      aes(
+        ymin = estimate-(1.96*se),
+        ymax = estimate+(1.96*se),
+        color = analysis_type
+      ),
+      width = 0.2,
+      cex = 1
+    ) +
+    labs(
+      title = paste0("Average point estimates and CIs (1,000 sims per level): ",
+                     "theta=log(0.5), tau=1"),
+      x = "Analysis type",
+      y = NULL
+    ) +
+    coord_cartesian(ylim=c(-1,0)) +
+    # facet_wrap(~dgm, ncol=3) +
+    facet_grid(rows=vars(date), cols=vars(dgm)) +
+    theme(
+      axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
+      legend.position = "none"
+    )
+    # scale_color_manual(values = c("#F8766D", "#7CAE00", "#C77CFF", "green3", "dodgerblue2"))
+    # scale_color_manual(values = c("turquoise", "salmon", "dodgerblue2", "green3", "darkorchid2"))
+
+  # !!!!! Combined plot
+  # use plot_data2
 
 }
 
@@ -366,23 +578,24 @@ if (run_process_results) {
 if (run_viz) {
 
   # Set this manually
-  which <- "Power"
+  # which <- "Power"
+  which <- "Estimates and CIs"
 
   if (which=="Estimates and CIs") {
     sim_files <- c(
-      "../simba.out/sim_main_526.simba",
-      "../simba.out/sim_main_526_new.simba",
-      "../simba.out/sim_main_602.simba",
-      "../simba.out/sim_main_628_part1.simba",
-      "../simba.out/sim_main_630.simba",
-      "../simba.out/sim_main_702.simba",
-      "../simba.out/sim_main_708.simba"
+      "../simba.out/sim_main_0526.simba",
+      "../simba.out/sim_main_0526_new.simba",
+      "../simba.out/sim_main_0602.simba",
+      "../simba.out/sim_main_0628_part1.simba",
+      "../simba.out/sim_main_0630.simba",
+      "../simba.out/sim_main_0702.simba",
+      "../simba.out/sim_main_0708.simba"
     )
   }
 
   if (which=="Power") {
-    # sim_files <- "../simba.out/sim_power_715.simba"
-    sim_files <- "../simba.out/sim_power_728.simba"
+    # sim_files <- "../simba.out/sim_power_0715.simba"
+    sim_files <- "../simba.out/sim_power_0728.simba"
   }
 
   plot_data <- data.frame(
@@ -483,56 +696,57 @@ if (run_viz) {
   # Export: 800 x 500
   if (which=="Estimates and CIs") {
 
-    # Plot for LTE
-    ggplot(
-      data = plot_data,
-      aes(
-        x = analysis_type,
-        y = estimate,
-        color = analysis_type,
-        ymin = estimate-(1.96*se),
-        ymax = estimate-(1.96*se)
-      )
-    ) +
-      geom_point(aes(color=analysis_type), size=2)+
-      geom_errorbar(
-        aes(
-          ymin = estimate-(1.96*se),
-          ymax = estimate+(1.96*se),
-          color = analysis_type
-        ),
-        width = 0.2,
-        cex = 1
-      ) +
-      geom_point(
-        data = data.frame(
-          dgm = "SPL (k=2,4 s=0.1,0.4)",
-          tau = c("Tau=0","Tau=1"),
-          analysis_type = "2S LMM",
-          estimate = log(0.5),
-          se = 0
-        ),
-        pch = 7,
-        color = "darkred"
-      ) +
-      geom_hline(
-        yintercept = log(0.5),
-        linetype = 2
-      ) +
-      labs(
-        title = "Average point estimates and CIs (~1,000 sims per level)",
-        x = "Analysis type",
-        y = NULL
-      ) +
-      facet_grid(rows=vars(tau), cols=vars(dgm)) +
-      theme(
-        axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
-        legend.position = "none"
-      )
+    # # Plot for LTE
+    # ggplot(
+    #   data = plot_data,
+    #   aes(
+    #     x = analysis_type,
+    #     y = estimate,
+    #     color = analysis_type,
+    #     ymin = estimate-(1.96*se),
+    #     ymax = estimate-(1.96*se)
+    #   )
+    # ) +
+    #   geom_point(aes(color=analysis_type), size=2)+
+    #   geom_errorbar(
+    #     aes(
+    #       ymin = estimate-(1.96*se),
+    #       ymax = estimate+(1.96*se),
+    #       color = analysis_type
+    #     ),
+    #     width = 0.2,
+    #     cex = 1
+    #   ) +
+    #   geom_point(
+    #     data = data.frame(
+    #       dgm = "SPL (k=2,4 s=0.1,0.4)",
+    #       tau = c("Tau=0","Tau=1"),
+    #       analysis_type = "2S LMM",
+    #       estimate = log(0.5),
+    #       se = 0
+    #     ),
+    #     pch = 7,
+    #     color = "darkred"
+    #   ) +
+    #   geom_hline(
+    #     yintercept = log(0.5),
+    #     linetype = 2
+    #   ) +
+    #   labs(
+    #     title = "Average point estimates and CIs (~1,000 sims per level)",
+    #     x = "Analysis type",
+    #     y = NULL
+    #   ) +
+    #   facet_grid(rows=vars(tau), cols=vars(dgm)) +
+    #   theme(
+    #     axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
+    #     legend.position = "none"
+    #   )
 
     # Plot for ATE
 
-    for (th in c(0.5, 0.9)) {
+    for (th in c(0.5)) {
+    # for (th in c(0.5, 0.9)) {
 
       plot <- ggplot(
         data = plot_data %>% filter(theta==log(th)),
@@ -1532,6 +1746,47 @@ if (run_misc) {
 ################################################.
 
 if (FALSE) {
+
+  # Negative log lik corresponding to two-stage dissertation approach
+  sim %<>% add_method(
+    "neg_log_lik",
+    function(theta, d, J, theta_l_hat, sigma_l_hat) {
+
+      l_times <- 1:(J-1)
+      mu_d <- 1-exp(-l_times/d)
+      log_lik <- -0.5 * t(theta_l_hat - theta*mu_d) %*%
+        solve(sigma_l_hat) %*% (theta_l_hat - theta*mu_d)
+
+      return (-1*log_lik)
+
+    }
+  )
+
+  # Negative log lik corresponding to two-stage spline approach
+  sim %<>% add_method(
+    "neg_log_lik_spl",
+    function(theta, p_x, p_y, J, theta_l_hat, sigma_l_hat) {
+
+      # !!!!! g_x hard-coded for now
+      g_x <- J
+
+      l_times <- 1:(J-1)
+      mu_spl <- sapply(l_times, function(l) {
+        I1 <- ifelse(0<l & l<=p_x, 1, 0)
+        I2 <- ifelse(p_x<l & l<=g_x, 1, 0)
+        I3 <- ifelse(g_x<l, 1, 0)
+        (p_y/p_x)*l*I1 + ((1-p_y)*l+g_x+p_y-p_x-1)/(g_x-p_x)*I2 + I3
+      })
+
+      log_lik <- -0.5 * t(theta_l_hat - theta*mu_spl) %*%
+        solve(sigma_l_hat) %*% (theta_l_hat - theta*mu_spl)
+
+      return (-1*log_lik)
+
+    }
+  )
+
+
 
   # Method corresponding to "semiparametric stochastic..." paper
 
