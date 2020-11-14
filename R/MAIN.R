@@ -124,6 +124,11 @@ if (run_packages_local) {
 # sbatch --depend=afterok:11 --array=1-15 --export=cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
 # sbatch --depend=afterok:12 --export=run='last',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
 
+# qsub -cwd -v run='first',cluster='bayes',type='R',project='z.stepped.wedge' -e ./io/ -o ./io/ run_r.sh
+# qsub -cwd -hold_jid 11 -t 1-15 -v cluster='bayes',type='R',project='z.stepped.wedge' -e ./io/ -o ./io/ run_r.sh
+# qsub -cwd -hold_jid 12 -v run='last',cluster='bayes',type='R',project='z.stepped.wedge' -e ./io/ -o ./io/ run_r.sh
+
+
 if (run_main) {
 
   library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
@@ -136,12 +141,12 @@ if (run_main) {
       # Set up and configure simba object
       sim <- new_sim()
       sim %<>% set_config(
-        num_sim = 1000, # !!!!!
+        num_sim = 500, # !!!!!
         parallel = "cluster",
         packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
                      "glmmTMB", "restriktor", "mgcv", "scam", "gamlss")
       )
-      sim %<>% add_constants(
+      sim %<>% add_constant(
         alpha = log(0.1)
       )
 
@@ -151,12 +156,12 @@ if (run_main) {
 
       # Set levels
       sim %<>% set_levels(
-        n_clusters = c(24,48),
+        n_clusters = 24, # c(24,48)
         n_time_points = 7,
         n_ind_per_cluster = 50, # c(20,50)
-        theta = c(log(0.1), log(0.3), log(0.5)), # log(0.5)
+        theta = c(log(0.5),log(0.6),log(0.7),log(0.8),log(0.9),0), # log(0.5)
         tau = 1, # c(0,1)
-        sigma = 3, # !!!!! choose this to match binomial variance
+        sigma = 2.1, # 2.1 = sqrt(50*0.1*(1-0.1))
         data_type = c("normal","binomial"),
         analysis = list(
           "LMM IGN" = list(type="LMM IGN"),
@@ -201,8 +206,10 @@ if (run_main) {
 
     cluster_config = list(
       sim_var = "sim",
-      js = "slurm",
-      dir = "/home/akenny/z.stepped.wedge"
+      # js = "slurm",  # Bionic
+      js = "sge",  # Bayes
+      # dir = "/home/akenny/z.stepped.wedge"  # Bionic
+      dir = "/home/students/avikenny/Desktop/z.stepped.wedge"  # Bayes
     )
 
   )
@@ -320,7 +327,7 @@ if (run_main_power) {
 if (run_process_results) {
 
   # Read in simulation object
-  sim <- readRDS("../simba.out/sim_main_1026.simba")
+  # sim <- readRDS("../simba.out/sim_main_1026.simba")
 
   # Generate true ATE value
   sim$results %<>% mutate(
@@ -356,25 +363,30 @@ if (run_process_results) {
     )
   )
 
-  # Transform summary data
+  # Transform summary data (1)
   summ %<>% mutate(
     analysis = factor(analysis, levels=c(
-      "LMM IGN", "LMM ATE", "SS ATE", "SS ATE 2", "MSS"
+      "LMM IGN", "LMM ATE", "SS ATE"
+      # "LMM IGN", "LMM ATE", "SS ATE", "SS ATE 2", "MSS"
     )),
     power = 1 - beta
   )
 
-  # print(
-  #   summ %>% mutate(
-  #     bias_p = 100*round((mean_theta_hat-theta)/abs(theta),3),
-  #     cov_theta = 100 * round(cov_theta,2),
-  #     mean_se_theta_hat = round(mean_se_theta_hat,2),
-  #     power = 1 - beta
-  #   ) %>%
-  #     subset(select=c(delay_model, tau, analysis, theta, mean_theta_hat,
-  #                     bias_p, mean_se_theta_hat, cov_theta, power)) %>%
-  #     arrange(delay_model, tau, analysis)
-  # )
+  # Transform summary data (2)
+  summ$theta_log <- rep(NA, nrow(summ))
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.7,
+                           "log(0.5)", summ$theta_log)
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.5,
+                           "log(0.6)", summ$theta_log)
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.4,
+                           "log(0.7)", summ$theta_log)
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.2,
+                           "log(0.8)", summ$theta_log)
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.1,
+                           "log(0.9)", summ$theta_log)
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==0,
+                           "log(1.0)", summ$theta_log)
+  summ$theta_log <- as.factor(summ$theta_log)
 
 }
 
@@ -386,6 +398,7 @@ if (run_process_results) {
 
 if (run_viz) {
 
+  # sim_main_1026.simba
   # Export: 800 x 400
   ggplot(
     data = summ,
@@ -417,7 +430,6 @@ if (run_viz) {
       x = "Analysis type",
       y = NULL
     ) +
-    # coord_cartesian(ylim=c(-1,0)) +
     facet_wrap(~delay_model, ncol=3) +
     # facet_grid(rows=vars(date), cols=vars(dgm)) +
     theme(
@@ -425,6 +437,46 @@ if (run_viz) {
       legend.position = "none"
     ) +
     scale_color_manual(values = c("turquoise", "salmon", "dodgerblue2", "green3", "darkorchid2"))
+
+  # sim_main_1031.simba
+  # Export: 800 x 400
+  ggplot(
+    data = summ,
+    aes(
+      x = analysis,
+      y = mean_ate_hat,
+      color = analysis,
+      ymin = q025_ate,
+      ymax = q975_ate
+    )
+  ) +
+    geom_hline(
+      mapping = aes(yintercept=mean_ate),
+      linetype = 2
+    ) +
+    geom_point(size=2)+
+    geom_errorbar(
+      aes(
+        ymin = q025_ate,
+        ymax = q975_ate,
+        color = analysis
+      ),
+      width = 0.2,
+      cex = 1
+    ) +
+    labs(
+      title = paste("Average point estimates and 2.5%/97.5% quantiles (1,000",
+                    "sims per level)"),
+      x = "Analysis type",
+      y = NULL
+    ) +
+    coord_cartesian(ylim=c(-1,0)) +
+    facet_grid(rows=vars(data_type), cols=vars(delay_model)) +
+    theme(
+      axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
+      legend.position = "none"
+    ) +
+    scale_color_manual(values = c("turquoise", "salmon", "dodgerblue2"))
 
 }
 
@@ -436,6 +488,7 @@ if (run_viz) {
 
 if (run_viz) {
 
+  # sim_main_1026.simba
   # Export: 800 x 400
   ggplot(
     data = summ,
@@ -451,19 +504,77 @@ if (run_viz) {
     ) +
     geom_point(size=2)+
     labs(
-      title = paste("Coverage (1,000",
-                    "sims per level): theta=log(0.5), tau=1"),
+      title = "Coverage (1,000 sims per level)",
       x = "Analysis type",
       y = NULL
     ) +
-    # coord_cartesian(ylim=c(-1,0)) +
     facet_wrap(~delay_model, ncol=3) +
-    # facet_grid(rows=vars(date), cols=vars(dgm)) +
     theme(
       axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
       legend.position = "none"
     ) +
     scale_color_manual(values = c("turquoise", "salmon", "dodgerblue2", "green3", "darkorchid2"))
+
+  # sim_main_1031.simba
+  # Export: 800 x 400
+  ggplot(
+    data = summ,
+    aes(
+      x = analysis,
+      y = cov_ate,
+      color = analysis
+    )
+  ) +
+    geom_hline(
+      mapping = aes(yintercept=0.95),
+      linetype = 2
+    ) +
+    geom_point(size=2)+
+    labs(
+      title = "Coverage (1,000 sims per level)",
+      x = "Analysis type",
+      y = NULL
+    ) +
+    facet_grid(rows=vars(data_type), cols=vars(delay_model)) +
+    theme(
+      axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
+      legend.position = "none"
+    ) +
+    scale_color_manual(values = c("turquoise", "salmon", "dodgerblue2"))
+
+}
+
+
+
+######################.
+##### VIZ: Power #####
+######################.
+
+if (run_viz) {
+
+  # sim_main_1101.simba
+  # Export: 800 x 400
+  ggplot(
+    data = summ,
+    aes(
+      x = theta_log,
+      y = power,
+      color = analysis
+    )
+  ) +
+    geom_line(aes(group=analysis)) +
+    geom_point(size=0.9) +
+    labs(
+      title = "Power of CI-based hypothesis test (500 sims per level)",
+      x = "Theta",
+      color = "Analysis method",
+      y = NULL
+    ) +
+    scale_color_manual(values = c("turquoise", "salmon", "dodgerblue2")) +
+    facet_grid(rows=vars(data_type), cols=vars(delay_model)) +
+    theme(
+      axis.text.x = element_text(angle=90, hjust=0, vjust=0.4)
+    )
 
 }
 
