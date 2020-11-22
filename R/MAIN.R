@@ -111,6 +111,7 @@ if (run_packages_local) {
   library(mgcv)
   library(scam)
   library(gamlss)
+  library(scales)
 
 }
 
@@ -1634,6 +1635,49 @@ if (run_misc) {
     geom_line() +
     facet_wrap(~fn, ncol=4) +
     labs(x="Time (steps)", y="% effect achieved", title="Delay models")
+
+}
+
+#########################################################.
+##### MISC: Graphs of delay models (for manuscript) #####
+#########################################################.
+
+if (run_misc) {
+
+  # Generate data
+  d1 <- sapply(seq(0,6,0.1), function(x) {
+    as.numeric(x>0)
+  })
+  d2 <- sapply(seq(0,6,0.1), function(x) {
+    as.numeric(x>2)
+  })
+  d3 <- sapply(seq(0,6,0.1), function(x) {
+    ifelse(x>0,1,0) * (1-exp(-x/1.4))
+  })
+  d4 <- sapply(seq(0,6,0.1), function(x) {
+    (-1/16)*x^2 + (1/2)*x
+  })
+  d5 <- sapply(seq(0,6,0.1), function(x) {
+    sin(((pi*x)/12)-pi/2)+1
+  })
+
+  curve_labels <- c("(a) Instantaneous","(b) Lagged","(c) Curved",
+                    "(d) Non-monotonic","(e) Convex")
+
+  # Plot functions
+  # Export: PDF 8"x3"
+  ggplot(
+    data.frame(
+      x = rep(seq(0,6,0.1),5),
+      y = c(d1,d2,d3,d4,d5),
+      fn = factor(rep(curve_labels, each=61), levels=curve_labels)
+    ),
+    aes(x=x, y=y)
+  ) +
+    geom_line() +
+    facet_wrap(~fn, ncol=5) +
+    scale_y_continuous(labels=percent) +
+    labs(x="Time (steps)", y="Percent of maximum effect achieved")
 
 }
 
