@@ -4,25 +4,21 @@
 #' @param analysis A list containing `type` (a character string) and
 #'     optionally `params` (a list that differs in structure depending on type).
 #'       Possible values of `type` include:
-#'         - "LMM IGN" (linear mixed model that ignores the delay)
-#'         - "LMM ATE" (linear mixed model that estimates average Tx effect)
-#'         - "SS ATE" (smoothing spline model that estimates average Tx effect)
+#'         - "HH" (Hussey & Hughes; ignores delay)
+#'         - "ETI" ("exposure treatment indicators" model)
+#'         - "SS" (smoothing spline model)
+#'       ARCHIVED values of `type` include:
 #'         - "SPL" (linear spline model)
 #'         - "MSS" (monotonic smoothing spline model)
-#'       ARCHIVED values of `type` include:
 #'         - "2S LM" (two-stage with linear model in first stage)
 #'         - "2S GEE" (two-stage with GEE in first stage)
 #'         - "2S LMM" (two-stage with linear mixed model in first stage)
 #'         - "2S HL" (two-stage with H-likelihood in first stage)
 #'         - "Last" (use last time point only)
-#'         - "SS" (smoothing spline model)
 #'         - "WASH" ("washout" model)
 #'       Possible values of `params` include:
 #'         - For type="2S GEE", params should equal list(corr=c), where values
 #'           of `c` include "exchangeable" and "independence"
-#'         - For type="SS" or type="SS ATE", params should equal list(type=t),
-#'           where values of `t` include 1 (smooth Tx effect only) and 2 (smooth
-#'           Tx effect and time trend)
 #'         - For type="WASH", params should equal list(length=k), where `k` is
 #'           the length of the washout period (i.e. the number of time steps to
 #'           discard).
@@ -42,7 +38,7 @@
 # FN: generate_dataset
 run_analysis <- function(data, analysis, data_type, L, C) {
 
-  if (analysis$type=="LMM IGN") {
+  if (analysis$type=="HH") {
 
     # Run GLMM
     if (data_type=="normal") {
@@ -69,7 +65,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   }
 
-  if (analysis$type=="LMM ATE") {
+  if (analysis$type=="ETI") {
 
     # Run GLMM
     if (data_type=="normal") {
@@ -107,7 +103,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   }
 
-  if (analysis$type=="SS ATE") {
+  if (analysis$type=="SS") {
 
     J <- L$n_time_points
 
@@ -169,200 +165,202 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   }
 
-  if (analysis$type=="SS ATE 2") {
 
-    # !!!!! Testing to see if gamlss gives the same estimates as mgcv
-
-    J <- L$n_time_points
-
-    model <- gamlss(
-      y ~ factor(j) + random(factor(i)) + pb(l),
-      data = data$data
-    )
-
-    pred <- lpred(model, what="mu", type="terms", terms="pb(l)", se.fit=TRUE)
-    spline_vals <- data.frame(
-      "spl_fit" = as.numeric(pred$fit),
-      "spl_se" = as.numeric(pred$se.fit),
-      "l" = data$data$l
-    )
-    spline_vals %<>% group_by(l) %>% summarize(
-      spl_fit = mean(spl_fit),
-      spl_se = mean(spl_se)
-    )
-    subtract <- (spline_vals %>% filter(l==0))$spl_fit
-    spline_vals %<>% mutate(
-      spl_fit = spl_fit - subtract
-    )
-    theta_l_hat <- (spline_vals %>% filter(l!=0))$spl_fit
-    se_theta_hats <- (spline_vals %>% filter(l!=0))$spl_se
-
-    # Trapezoid sum: sum of first len-1 values plus half the last value
-    # !!!!! Covariances ares currently being ignored; need entire covariance mtx
-    len <- length(theta_l_hat)
-    A <- matrix(c(rep(1/len,len-1),(1/len)/2), nrow=1)
-    ate_hat <- (A %*% theta_l_hat)[1,1]
-    se_ate_hat <- sqrt(A %*% diag(se_theta_hats^2) %*% t(A))[1,1]
-
-    return (list(
-      ate_hat = ate_hat,
-      se_ate_hat = se_ate_hat
-    ))
-
-  }
-
-  if (analysis$type=="MSS") {
-
-    J <- L$n_time_points
-
-    # !!!!! Main difference is pbm() instead of pb()
-    model <- gamlss(
-      y ~ factor(j) + random(factor(i)) + pbm(l, mono="down"),
-      data = data$data
-    )
-
-    pred <- lpred(model, what="mu", type="terms",
-                  terms="pbm(l, mono = \"down\")", se.fit=TRUE)
-    spline_vals <- data.frame(
-      "spl_fit" = as.numeric(pred$fit),
-      "spl_se" = as.numeric(pred$se.fit),
-      "l" = data$data$l
-    )
-    spline_vals %<>% group_by(l) %>% summarize(
-      spl_fit = mean(spl_fit),
-      spl_se = mean(spl_se)
-    )
-    subtract <- (spline_vals %>% filter(l==0))$spl_fit
-    spline_vals %<>% mutate(
-      spl_fit = spl_fit - subtract
-    )
-    theta_l_hat <- (spline_vals %>% filter(l!=0))$spl_fit
-    se_theta_hats <- (spline_vals %>% filter(l!=0))$spl_se
-
-    # Trapezoid sum: sum of first len-1 values plus half the last value
-    # !!!!! Covariances ares currently being ignored; need entire covariance mtx
-    len <- length(theta_l_hat)
-    A <- matrix(c(rep(1/len,len-1),(1/len)/2), nrow=1)
-    ate_hat <- (A %*% theta_l_hat)[1,1]
-    se_ate_hat <- sqrt(A %*% diag(se_theta_hats^2) %*% t(A))[1,1]
-
-    return (list(
-      ate_hat = ate_hat,
-      se_ate_hat = se_ate_hat
-    ))
-
-  }
-
-  # !!!!! Modify to calculate ATE
-  # !!!!! Backburner
-  if (analysis$type=="SPL") {
-
-    # Dynamically build formula
-    # !!!!! monotonic spline currently only works with lm/glm
-    if (analysis$params$mono) {
-      formula <- "y ~ factor(j) + t0"
-    } else {
-      formula <- "y ~ factor(j) + (1|i) + t0"
-    }
-
-    # Add spline covariates to dataset
-    k <- analysis$params$knots
-    df <- data$data
-    df$t0 <- df$l
-    if (length(k)>1) {
-      for (i in 1:(length(k)-1)) {
-        df[paste0("t",i)] <- pmax(0,df$l-k[i]) - pmax(0,df$l-k[length(k)])
-        formula <- paste0(formula," + t",i)
-      }
-    }
-
-    # !!!!! monotonic spline currently only works with lm/glm
-    if (analysis$params$mono) {
-
-      # Run LM with spline terms
-      if (data_type=="normal") {
-        model <- lm(
-          formula = formula,
-          data = df
-        )
-      } else if (data_type=="binomial") {
-        model <- glm(
-          formula = formula,
-          data = df,
-          family = binomial(link="log")
-        )
-      }
-
-      # !!!!! Currently hard-coded for num_times=7
-      res <- restriktor(
-        object = model,
-        constraints = rbind(
-          c(0,0,0,0,0,0,0,-1,0,0,0,0,0),
-          c(0,0,0,0,0,0,0,-1,-1,0,0,0,0),
-          c(0,0,0,0,0,0,0,-1,-1,-1,0,0,0),
-          c(0,0,0,0,0,0,0,-1,-1,-1,-1,0,0),
-          c(0,0,0,0,0,0,0,-1,-1,-1,-1,-1,0),
-          c(0,0,0,0,0,0,0,-1,-1,-1,-1,-1,-1)
-        ),
-        rhs = c(0,0,0,0,0,0)
-      )
-      s <- summary(res)
-
-      # Extract coefficients and SEs
-      coeff_names <- names(summary(res)$coefficients[,1])
-      coeffs <- as.numeric(summary(res)$coefficients[,1])
-      sigma_hat <- summary(res)$V
-
-    } else {
-
-      # Run GLMM with spline terms
-      if (data_type=="normal") {
-        model <- lmer(
-          formula = formula,
-          data = df
-        )
-      } else if (data_type=="binomial") {
-        model <- glmer(
-          formula = formula,
-          data = df,
-          family = binomial(link="log")
-        )
-      }
-
-      # Extract estimates and covariance matrix
-      coeff_names <- names(summary(model)$coefficients[,1])
-      coeffs <- as.numeric(summary(model)$coefficients[,1])
-      sigma_hat <- vcov(model)
-
-    }
-
-    # Truncate s_hat and sigma_s_hat
-    indices <- c((length(coeff_names)-length(k)+1):length(coeff_names))
-    coeff_names <- coeff_names[indices]
-    coeffs <- coeffs[indices]
-    sigma_hat <- sigma_hat[indices,indices]
-    sigma_hat <- as.matrix(sigma_hat)
-
-    # Calculate estimators
-    if (length(k)>1) {
-      kdiffs <- k[length(k)] - c(0, k[1:(length(k)-1)])
-      theta_hat <- (kdiffs %*% coeffs)[1,1]
-      se_theta_hat <- sqrt((kdiffs %*% sigma_hat %*% kdiffs)[1,1])
-    } else {
-      theta_hat <- k * coeffs
-      se_theta_hat <- k * sqrt(sigma_hat[1,1])
-    }
-
-    return (list(
-      theta_hat = theta_hat,
-      se_theta_hat = se_theta_hat
-    ))
-
-  }
 
   # ARCHIVED METHODS: START
 
+  # if (analysis$type=="SS ATE 2") {
+  #
+  #   # !!!!! Testing to see if gamlss gives the same estimates as mgcv
+  #
+  #   J <- L$n_time_points
+  #
+  #   model <- gamlss(
+  #     y ~ factor(j) + random(factor(i)) + pb(l),
+  #     data = data$data
+  #   )
+  #
+  #   pred <- lpred(model, what="mu", type="terms", terms="pb(l)", se.fit=TRUE)
+  #   spline_vals <- data.frame(
+  #     "spl_fit" = as.numeric(pred$fit),
+  #     "spl_se" = as.numeric(pred$se.fit),
+  #     "l" = data$data$l
+  #   )
+  #   spline_vals %<>% group_by(l) %>% summarize(
+  #     spl_fit = mean(spl_fit),
+  #     spl_se = mean(spl_se)
+  #   )
+  #   subtract <- (spline_vals %>% filter(l==0))$spl_fit
+  #   spline_vals %<>% mutate(
+  #     spl_fit = spl_fit - subtract
+  #   )
+  #   theta_l_hat <- (spline_vals %>% filter(l!=0))$spl_fit
+  #   se_theta_hats <- (spline_vals %>% filter(l!=0))$spl_se
+  #
+  #   # Trapezoid sum: sum of first len-1 values plus half the last value
+  #   # !!!!! Covariances ares currently being ignored; need entire covariance mtx
+  #   len <- length(theta_l_hat)
+  #   A <- matrix(c(rep(1/len,len-1),(1/len)/2), nrow=1)
+  #   ate_hat <- (A %*% theta_l_hat)[1,1]
+  #   se_ate_hat <- sqrt(A %*% diag(se_theta_hats^2) %*% t(A))[1,1]
+  #
+  #   return (list(
+  #     ate_hat = ate_hat,
+  #     se_ate_hat = se_ate_hat
+  #   ))
+  #
+  # }
+
+  # if (analysis$type=="MSS") {
+  #
+  #   J <- L$n_time_points
+  #
+  #   # !!!!! Main difference is pbm() instead of pb()
+  #   model <- gamlss(
+  #     y ~ factor(j) + random(factor(i)) + pbm(l, mono="down"),
+  #     data = data$data
+  #   )
+  #
+  #   pred <- lpred(model, what="mu", type="terms",
+  #                 terms="pbm(l, mono = \"down\")", se.fit=TRUE)
+  #   spline_vals <- data.frame(
+  #     "spl_fit" = as.numeric(pred$fit),
+  #     "spl_se" = as.numeric(pred$se.fit),
+  #     "l" = data$data$l
+  #   )
+  #   spline_vals %<>% group_by(l) %>% summarize(
+  #     spl_fit = mean(spl_fit),
+  #     spl_se = mean(spl_se)
+  #   )
+  #   subtract <- (spline_vals %>% filter(l==0))$spl_fit
+  #   spline_vals %<>% mutate(
+  #     spl_fit = spl_fit - subtract
+  #   )
+  #   theta_l_hat <- (spline_vals %>% filter(l!=0))$spl_fit
+  #   se_theta_hats <- (spline_vals %>% filter(l!=0))$spl_se
+  #
+  #   # Trapezoid sum: sum of first len-1 values plus half the last value
+  #   # !!!!! Covariances ares currently being ignored; need entire covariance mtx
+  #   len <- length(theta_l_hat)
+  #   A <- matrix(c(rep(1/len,len-1),(1/len)/2), nrow=1)
+  #   ate_hat <- (A %*% theta_l_hat)[1,1]
+  #   se_ate_hat <- sqrt(A %*% diag(se_theta_hats^2) %*% t(A))[1,1]
+  #
+  #   return (list(
+  #     ate_hat = ate_hat,
+  #     se_ate_hat = se_ate_hat
+  #   ))
+  #
+  # }
+
   if (analysis$type %in% c("2S LM", "2S GEE", "2S LMM", "2S HL")) {
+
+    # !!!!! Modify to calculate ATE
+    # !!!!! Backburner
+    if (analysis$type=="SPL") {
+
+      # Dynamically build formula
+      # !!!!! monotonic spline currently only works with lm/glm
+      if (analysis$params$mono) {
+        formula <- "y ~ factor(j) + t0"
+      } else {
+        formula <- "y ~ factor(j) + (1|i) + t0"
+      }
+
+      # Add spline covariates to dataset
+      k <- analysis$params$knots
+      df <- data$data
+      df$t0 <- df$l
+      if (length(k)>1) {
+        for (i in 1:(length(k)-1)) {
+          df[paste0("t",i)] <- pmax(0,df$l-k[i]) - pmax(0,df$l-k[length(k)])
+          formula <- paste0(formula," + t",i)
+        }
+      }
+
+      # !!!!! monotonic spline currently only works with lm/glm
+      if (analysis$params$mono) {
+
+        # Run LM with spline terms
+        if (data_type=="normal") {
+          model <- lm(
+            formula = formula,
+            data = df
+          )
+        } else if (data_type=="binomial") {
+          model <- glm(
+            formula = formula,
+            data = df,
+            family = binomial(link="log")
+          )
+        }
+
+        # !!!!! Currently hard-coded for num_times=7
+        res <- restriktor(
+          object = model,
+          constraints = rbind(
+            c(0,0,0,0,0,0,0,-1,0,0,0,0,0),
+            c(0,0,0,0,0,0,0,-1,-1,0,0,0,0),
+            c(0,0,0,0,0,0,0,-1,-1,-1,0,0,0),
+            c(0,0,0,0,0,0,0,-1,-1,-1,-1,0,0),
+            c(0,0,0,0,0,0,0,-1,-1,-1,-1,-1,0),
+            c(0,0,0,0,0,0,0,-1,-1,-1,-1,-1,-1)
+          ),
+          rhs = c(0,0,0,0,0,0)
+        )
+        s <- summary(res)
+
+        # Extract coefficients and SEs
+        coeff_names <- names(summary(res)$coefficients[,1])
+        coeffs <- as.numeric(summary(res)$coefficients[,1])
+        sigma_hat <- summary(res)$V
+
+      } else {
+
+        # Run GLMM with spline terms
+        if (data_type=="normal") {
+          model <- lmer(
+            formula = formula,
+            data = df
+          )
+        } else if (data_type=="binomial") {
+          model <- glmer(
+            formula = formula,
+            data = df,
+            family = binomial(link="log")
+          )
+        }
+
+        # Extract estimates and covariance matrix
+        coeff_names <- names(summary(model)$coefficients[,1])
+        coeffs <- as.numeric(summary(model)$coefficients[,1])
+        sigma_hat <- vcov(model)
+
+      }
+
+      # Truncate s_hat and sigma_s_hat
+      indices <- c((length(coeff_names)-length(k)+1):length(coeff_names))
+      coeff_names <- coeff_names[indices]
+      coeffs <- coeffs[indices]
+      sigma_hat <- sigma_hat[indices,indices]
+      sigma_hat <- as.matrix(sigma_hat)
+
+      # Calculate estimators
+      if (length(k)>1) {
+        kdiffs <- k[length(k)] - c(0, k[1:(length(k)-1)])
+        theta_hat <- (kdiffs %*% coeffs)[1,1]
+        se_theta_hat <- sqrt((kdiffs %*% sigma_hat %*% kdiffs)[1,1])
+      } else {
+        theta_hat <- k * coeffs
+        se_theta_hat <- k * sqrt(sigma_hat[1,1])
+      }
+
+      return (list(
+        theta_hat = theta_hat,
+        se_theta_hat = se_theta_hat
+      ))
+
+    }
 
     if (analysis$type=="2S LM") {
 

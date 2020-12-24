@@ -147,13 +147,13 @@ if (run_main) {
         packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
                      "glmmTMB", "restriktor", "mgcv", "scam", "gamlss")
       )
-      sim %<>% add_constant(
+      sim %<>% add_constants(
         alpha = log(0.1)
       )
 
       # Add functions to simba object
       sim %<>% add_creator(generate_dataset)
-      sim %<>% add_script(one_simulation)
+      sim %<>% set_script(one_simulation)
 
       # Set levels
       sim %<>% set_levels(
@@ -165,11 +165,9 @@ if (run_main) {
         sigma = 2.1, # 2.1 = sqrt(50*0.1*(1-0.1))
         data_type = c("normal","binomial"),
         analysis = list(
-          "LMM IGN" = list(type="LMM IGN"),
-          "LMM ATE" = list(type="LMM ATE"),
-          "SS ATE" = list(type="SS ATE", params=list(t=1))
-          # "SS ATE 2" = list(type="SS ATE 2"),
-          # "MSS" = list(type="MSS")
+          "HH" = list(type="HH"),
+          "ETI" = list(type="ETI"),
+          "SS" = list(type="SS")
         ),
         delay_model = list(
           "EXP (d=0)" = list(type="exp", params=list(d=0)),
@@ -201,7 +199,7 @@ if (run_main) {
 
     },
 
-    main = { sim %<>% run("one_simulation") },
+    main = { sim %<>% run() },
 
     last = { sim %>% summary() %>% print() },
 
@@ -239,14 +237,14 @@ if (run_main_lte) {
   #     "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
   #     "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
   #     "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
-  #     "LMM IGN" = list(type="LMM IGN"),
+  #     "HH" = list(type="HH"),
   #     "WASH 1" = list(type="WASH", params=list(length=1)),
   #     "WASH 2" = list(type="WASH", params=list(length=2)),
   #     "Last" = list(type="Last"),
   #     "Smooth 1" = list(type="SS", params=list(t=1)),
   #     "Smooth 2" = list(type="SS", params=list(t=2)),
   #     "MSS" = list(type="MSS")
-  #     # "LMM ATE" = list(type="LMM ATE")
+  #     # "ETI" = list(type="ETI")
   #   ),
   #   delay_model = list(
   #     "EXP (d=0)" = list(type="exp", params=list(d=0)),
@@ -290,14 +288,14 @@ if (run_main_power) {
   #     # "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
   #     # "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
   #     # "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
-  #     "LMM IGN" = list(type="LMM IGN"),
+  #     "HH" = list(type="HH"),
   #     # "WASH 1" = list(type="WASH", params=list(length=1)),
   #     # "WASH 2" = list(type="WASH", params=list(length=2)),
   #     # "Last" = list(type="Last"),
   #     # "Smooth 1" = list(type="SS", params=list(t=1)),
   #     "Smooth 2" = list(type="SS", params=list(t=2)),
-  #     "LMM ATE" = list(type="LMM ATE"),
-  #     "SS ATE" = list(type="SS ATE", params=list(t=2))
+  #     "ETI" = list(type="ETI"),
+  #     "SS" = list(type="SS")
   #   ),
   #   delay_model = list(
   #     "EXP (d=0)" = list(type="exp", params=list(d=0)),
@@ -366,10 +364,7 @@ if (run_process_results) {
 
   # Transform summary data (1)
   summ %<>% mutate(
-    analysis = factor(analysis, levels=c(
-      "LMM IGN", "LMM ATE", "SS ATE"
-      # "LMM IGN", "LMM ATE", "SS ATE", "SS ATE 2", "MSS"
-    )),
+    analysis = factor(analysis, levels=c("HH","ETI","SS")),
     power = 1 - beta
   )
 
@@ -621,13 +616,7 @@ if (run_viz) {
   }
 
   plot_data %<>% mutate(
-    analysis_type = ifelse(analysis_type=="LMM IGN", "LMM Ign", analysis_type)
-  )
-
-  plot_data %<>% mutate(
-    analysis_type = factor(analysis_type, levels=c(
-      "LMM Ign", "LMM Ign", "SS ATE", "SS ATE 2", "MSS"
-    ))
+    analysis_type = factor(analysis_type, levels=c("HH","SS","MSS"))
   )
 
   # Plot: Estimates and CIs
@@ -758,7 +747,7 @@ if (run_viz) {
       !(is.na(analysis_type))
   )
   plot_data$analysis_type %<>% car::Recode(paste0(
-    "'SPL (1-6) MONO'='SPL Mono';'LMM IGN'='LMM Ign';'WASH 1'='Wash 1';",
+    "'SPL (1-6) MONO'='SPL Mono';'WASH 1'='Wash 1';",
     "'WASH 2'='Wash 2'"
   ))
 
@@ -782,24 +771,24 @@ if (run_viz) {
   if (which=="Estimates and CIs") {
     plot_data %<>% mutate(
       analysis_type = factor(analysis_type, levels=c(
-        "LMM Ign", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1",
+        "HH", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1",
         "Smooth 2", "SPL Mono", "SPL (1,6)", "2S LMM"
       ))
     )
   }
   if (which=="Power") {
     # plot_data %<>% filter(analysis_type %in% c(
-    #   "LMM Ign", "Wash 2", "SPL (1-6)", "Smooth 2", "SPL (1,6)", "LMM ATE"
+    #   "HH", "Wash 2", "SPL (1-6)", "Smooth 2", "SPL (1,6)", "ETI"
     # ))
     # plot_data %<>% mutate(
     #   analysis_type = factor(analysis_type, levels=c(
-    #     "LMM Ign", "Wash 2", "SPL (1-6)", "Smooth 2", "SPL (1,6)", "LMM ATE"
+    #     "HH", "Wash 2", "SPL (1-6)", "Smooth 2", "SPL (1,6)", "ETI"
     #   ))
     # )
     # plot_data %<>% mutate(
     #   analysis_type = factor(analysis_type, levels=c(
-    #     "LMM Ign", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1",
-    #     "Smooth 2", "SPL Mono", "SPL (1,6)", "2S LMM", "LMM ATE"
+    #     "HH", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1",
+    #     "Smooth 2", "SPL Mono", "SPL (1,6)", "2S LMM", "ETI"
     #   ))
     # )
   }
