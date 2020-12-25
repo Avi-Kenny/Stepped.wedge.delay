@@ -18,7 +18,7 @@
 #' @return A list containing the following: \cr
 #'     * `params`: a list of the parameters supplied in the function call \cr
 #'     * `data`: the resulting data frame
-#' @export
+
 generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
                              n_ind_per_cluster, data_type, sigma=NA,
                              delay_model) {

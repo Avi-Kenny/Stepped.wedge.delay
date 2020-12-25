@@ -97,21 +97,18 @@ if (FALSE) {
 
 if (run_packages_local) {
 
+  library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
   library(dplyr)
-  library(magrittr)
   library(ggplot2)
   library(lme4)
-  library(geepack)
   library(car)
   library(stringr)
-  library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
   library(parallel)
   library(glmmTMB)
-  library(restriktor)
   library(mgcv)
-  library(scam)
-  library(gamlss)
   library(scales)
+  library(fastDummies)
+  library(rjags)
 
 }
 
@@ -121,19 +118,14 @@ if (run_packages_local) {
 ##### MAIN: Main simulation #####
 #################################.
 
+# Commands for job sumbission on Slurm:
 # sbatch --export=run='first',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
 # sbatch --depend=afterok:11 --array=1-15 --export=cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
 # sbatch --depend=afterok:12 --export=run='last',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
 
-# qsub -cwd -v run='first',cluster='bayes',type='R',project='z.stepped.wedge' -e ./io/ -o ./io/ run_r.sh
-# qsub -cwd -hold_jid 11 -t 1-15 -v cluster='bayes',type='R',project='z.stepped.wedge' -e ./io/ -o ./io/ run_r.sh
-# qsub -cwd -hold_jid 12 -v run='last',cluster='bayes',type='R',project='z.stepped.wedge' -e ./io/ -o ./io/ run_r.sh
-
-
 if (run_main) {
 
   library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
-  library(magrittr)
 
   run_on_cluster(
 
@@ -142,10 +134,11 @@ if (run_main) {
       # Set up and configure simba object
       sim <- new_sim()
       sim %<>% set_config(
-        num_sim = 500, # !!!!!
-        parallel = "cluster",
-        packages = c("dplyr", "magrittr", "stringr", "geepack", "lme4",
-                     "glmmTMB", "restriktor", "mgcv", "scam", "gamlss")
+        num_sim = 5, # !!!!!
+        parallel = "none",
+        stop_at_error = TRUE, # !!!!!
+        packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", # "geepack", "restriktor", "scam", "gamlss"
+                     "glmmTMB", "mgcv", "fastDummies", "scales", "car")
       )
       sim %<>% add_constants(
         alpha = log(0.1)
@@ -157,163 +150,41 @@ if (run_main) {
 
       # Set levels
       sim %<>% set_levels(
-        n_clusters = 24, # c(24,48)
+        n_clusters = 24,
         n_time_points = 7,
-        n_ind_per_cluster = 50, # c(20,50)
-        theta = c(log(0.5),log(0.6),log(0.7),log(0.8),log(0.9),0), # log(0.5)
-        tau = 1, # c(0,1)
+        n_ind_per_cluster = 50,
+        theta = -0.5, # seq(-0.5,0,0.1)
+        tau = 1,
         sigma = 2.1, # 2.1 = sqrt(50*0.1*(1-0.1))
-        data_type = c("normal","binomial"),
-        analysis = list(
-          "HH" = list(type="HH"),
-          "ETI" = list(type="ETI"),
-          "SS" = list(type="SS")
-        ),
+        data_type = "normal",
+        analysis = list("ETI", "MCMC-SPL", "MCMC-SPL-MON"),
         delay_model = list(
-          "EXP (d=0)" = list(type="exp", params=list(d=0)),
-          "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
-          "SPL (k=2,4 s=0.1,0.4)" = list(
-            type = "spline",
-            params = list(knots=c(2,4),slopes=c(0.1,0.4))
-          )
+          # "EXP (d=0)" = list(type="exp", params=list(d=0)),
+          "EXP (d=1.4)" = list(type="exp", params=list(d=1.4))
+          # "SPL (k=2,4 s=0.1,0.4)" = list(
+          #   type = "spline",
+          #   params = list(knots=c(2,4),slopes=c(0.1,0.4))
+          # )
         )
       )
 
-      # ARCHIVE: other levels
-      # "2S LMM" = list(type="2S LMM", params=list(REML=T)),
-      # "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
-      # "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
-      # "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
-      # "WASH 1" = list(type="WASH", params=list(length=1)),
-      # "WASH 2" = list(type="WASH", params=list(length=2)),
-      # "Last" = list(type="Last"),
-      # "Smooth 1" = list(type="SS", params=list(t=1)),
-      # "Smooth 2" = list(type="SS", params=list(t=2)),
-
-      # ARCHIVE: other delay models
-      # "Linear" = list(type="spline", params=list(knots=6, slopes=(1/6))),
-      # "SPL (k=1,6 s=0.8,0.04)" = list(
-      #   type = "spline",
-      #   params = list(knots=c(1,6),slopes=c(0.8,0.04))
-      # ),
-
     },
 
-    main = { sim %<>% run() },
+    main = {
+      sim %<>% run()
+    },
 
-    last = { sim %>% summary() %>% print() },
+    last = {
+      sim %>% summary() %>% print()
+    },
 
     cluster_config = list(
       sim_var = "sim",
-      # js = "slurm",  # Bionic
-      js = "sge",  # Bayes
-      # dir = "/home/akenny/z.stepped.wedge"  # Bionic
-      dir = "/home/students/avikenny/Desktop/z.stepped.wedge"  # Bayes
+      js = "slurm",
+      dir = "/home/akenny/z.stepped.wedge"
     )
 
   )
-
-}
-
-
-
-#################################################.
-##### MAIN: Run sim code (long-term effect) #####
-#################################################.
-
-if (run_main_lte) {
-
-  # # Set levels
-  # sim %<>% set_levels(
-  #   n_clusters = 48,
-  #   n_time_points = 7,
-  #   n_ind_per_cluster = 50,
-  #   theta = log(0.5),
-  #   tau = c(0,1),
-  #   sigma = 3,
-  #   data_type = "normal",
-  #   analysis = list(
-  #     "2S LMM" = list(type="2S LMM", params=list(REML=T)),
-  #     "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
-  #     "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
-  #     "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
-  #     "HH" = list(type="HH"),
-  #     "WASH 1" = list(type="WASH", params=list(length=1)),
-  #     "WASH 2" = list(type="WASH", params=list(length=2)),
-  #     "Last" = list(type="Last"),
-  #     "Smooth 1" = list(type="SS", params=list(t=1)),
-  #     "Smooth 2" = list(type="SS", params=list(t=2)),
-  #     "MSS" = list(type="MSS")
-  #     # "ETI" = list(type="ETI")
-  #   ),
-  #   delay_model = list(
-  #     "EXP (d=0)" = list(type="exp", params=list(d=0)),
-  #     "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
-  #     "SPL (k=1,6 s=0.8,0.04)" = list(
-  #       type = "spline",
-  #       params = list(knots=c(1,6),slopes=c(0.8,0.04))
-  #     ),
-  #     "SPL (k=2,4 s=0.1,0.4)" = list(
-  #       type = "spline",
-  #       params = list(knots=c(2,4),slopes=c(0.1,0.4))
-  #     )
-  #     # "Linear" = list(type="spline", params=list(knots=6, slopes=(1/6)))
-  #   )
-  # )
-  #
-  # # Run simulation and save output
-  # sim %<>% run("one_simulation", sim_uids=.tid)
-  # saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-}
-
-
-
-######################################.
-##### MAIN: Run sim code (power) #####
-######################################.
-
-if (run_main_power) {
-
-  # # Set levels
-  # sim %<>% set_levels(
-  #   n_clusters = 48,
-  #   n_time_points = 7,
-  #   n_ind_per_cluster = 50,
-  #   theta = log(c(0.5,0.6,0.7,0.8,0.9,1.0)),
-  #   tau = c(0,1),
-  #   sigma = 3,
-  #   data_type = "normal",
-  #   analysis = list(
-  #     # "SPL (1,6)" = list(type="SPL", params=list(knots=c(1,6),mono=F)),
-  #     # "SPL (1-6)" = list(type="SPL", params=list(knots=c(1:6), mono=F)),
-  #     # "SPL (1-6) MONO" = list(type="SPL", params=list(knots=c(1:6), mono=T)),
-  #     "HH" = list(type="HH"),
-  #     # "WASH 1" = list(type="WASH", params=list(length=1)),
-  #     # "WASH 2" = list(type="WASH", params=list(length=2)),
-  #     # "Last" = list(type="Last"),
-  #     # "Smooth 1" = list(type="SS", params=list(t=1)),
-  #     "Smooth 2" = list(type="SS", params=list(t=2)),
-  #     "ETI" = list(type="ETI"),
-  #     "SS" = list(type="SS")
-  #   ),
-  #   delay_model = list(
-  #     "EXP (d=0)" = list(type="exp", params=list(d=0)),
-  #     "EXP (d=1.4)" = list(type="exp", params=list(d=1.4)),
-  #     "SPL (k=1,6 s=0.8,0.04)" = list(
-  #       type = "spline",
-  #       params = list(knots=c(1,6),slopes=c(0.8,0.04))
-  #     ),
-  #     "SPL (k=2,4 s=0.1,0.4)" = list(
-  #       type = "spline",
-  #       params = list(knots=c(2,4),slopes=c(0.1,0.4))
-  #     )
-  #   )
-  # )
-  #
-  # # Run simulation and save output
-  # sim %<>% run("one_simulation", sim_uids=.tid)
-  # saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
 
 }
 
@@ -922,426 +793,6 @@ if (run_viz) {
         axis.text.x = element_text(angle=90, hjust=0, vjust=0.4)
       )
 
-  }
-
-}
-
-
-
-#####################################.
-##### MAIN: Reproduce table 3.1 #####
-#####################################.
-
-if (run_tables3) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = c(12,24,48),
-    n_time_points = 7,
-    n_ind_per_cluster = 100,
-    theta = log(0.5),
-    tau = 0,
-    sigma = 0.3,
-    data_type = c("normal", "binomial"),
-    analysis = c("2S LM", "IG LM"), # !!!!! update
-    delay_model = list(
-      "Exp (d=0)" = list(type="exp", params=list(d=0)),
-      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
-      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
-    )
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-    sim <- readRDS("../simba.out/sim_tab3.1.simba")
-    print(summary(
-      sim_obj = sim,
-      bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
-    ))
-  }
-
-}
-
-
-
-#####################################.
-##### MAIN: Reproduce table 3.2 #####
-#####################################.
-
-if (run_tables3) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = 24,
-    n_time_points = c(5,7,9),
-    n_ind_per_cluster = 100,
-    theta = log(0.5),
-    tau = 0,
-    sigma = 0.3,
-    data_type = c("normal", "binomial"),
-    analysis = c("2S LM", "IG LM"), # !!!!! update
-    delay_model = list(
-      "Exp (d=0)" = list(type="exp", params=list(d=0)),
-      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
-      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
-    )
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-    sim <- readRDS("../simba.out/sim_tab3.2.simba")
-    print(summary(
-      sim_obj = sim,
-      bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
-    ))
-  }
-
-}
-
-
-
-#####################################.
-##### MAIN: Reproduce table 3.3 #####
-#####################################.
-
-if (run_tables3) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = 24,
-    n_time_points = 7,
-    n_ind_per_cluster = c(20,50,100),
-    theta = log(0.5),
-    tau = 0,
-    sigma = 0.3,
-    data_type = c("normal", "binomial"),
-    analysis = c("2S LM", "IG LM"), # !!!!! update
-    delay_model = list(
-      "Exp (d=0)" = list(type="exp", params=list(d=0)),
-      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
-      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
-    )
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-    sim <- readRDS("../simba.out/sim_tab3.3.simba")
-    print(summary(
-      sim_obj = sim,
-      bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
-    ))
-  }
-
-}
-
-
-
-#####################################.
-##### MAIN: Reproduce table 3.4 #####
-#####################################.
-
-if (run_tables3) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = c(12,24,48),
-    n_time_points = 7,
-    n_ind_per_cluster = 100,
-    theta = log(0.5),
-    tau = 0,
-    sigma = 0.3,
-    data_type = c("normal", "binomial"),
-    analysis = list("2S LM"=list(type="2S LM")),
-    delay_model = list(
-      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
-      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
-    )
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-    sim <- readRDS("../simba.out/sim_tab3.4.simba")
-    print(summary(
-      sim_obj = sim,
-      bias = list(name="bias_d", truth="d", estimate="d_hat")
-    ))
-  }
-
-}
-
-
-
-#####################################.
-##### MAIN: Reproduce table 3.5 #####
-#####################################.
-
-if (run_tables3) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = 24,
-    n_time_points = c(5,7,9),
-    n_ind_per_cluster = 100,
-    theta = log(0.5),
-    tau = 0,
-    sigma = 0.3,
-    data_type = c("normal", "binomial"),
-    analysis = list("2S LM"=list(type="2S LM")),
-    delay_model = list(
-      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
-      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
-    )
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-    sim <- readRDS("../simba.out/sim_tab3.5.simba")
-    print(summary(
-      sim_obj = sim,
-      bias = list(name="bias_d", truth="d", estimate="d_hat")
-    ))
-  }
-
-}
-
-
-
-#####################################.
-##### MAIN: Reproduce table 3.6 #####
-#####################################.
-
-if (run_tables3) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = 24,
-    n_time_points = 7,
-    n_ind_per_cluster = c(20,50,100),
-    theta = log(0.5),
-    tau = 0,
-    sigma = 0.3,
-    data_type = c("normal", "binomial"),
-    analysis = list("2S LM"=list(type="2S LM")),
-    delay_model = list(
-      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
-      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
-    )
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-    sim <- readRDS("../simba.out/sim_tab3.6.simba")
-    print(summary(
-      sim_obj = sim,
-      bias = list(name="bias_d", truth="d", estimate="d_hat")
-    ))
-  }
-
-}
-
-
-
-#########################################################.
-##### COVERAGE: Investigate coverage issue (no GEE) #####
-#########################################################.
-
-if (run_cov_nogee) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = c(12,48),
-    n_time_points = 7,
-    n_ind_per_cluster = seq(20, 100, 20),
-    theta = log(0.5),
-    tau = c(0,0.25),
-    sigma = 3,
-    data_type = c("normal", "binomial"),
-    analysis = list(
-      "2S LM" = list(type="2S LM"),
-      "2S LMM REML" = list(type="2S LMM", params=list(REML=TRUE))
-    ),
-    delay_model = list(
-      "Exp (d=0)" = list(type="exp", params=list(d=0)),
-      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
-    )
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-    sim <- readRDS("../simba.out/sim_cov_nogee.simba")
-    print(summary(
-      sim_obj = sim,
-      coverage = list(
-        name = "cov_theta",
-        truth = "theta",
-        estimate = "theta_hat",
-        se = "se_theta_hat",
-        na.rm = TRUE
-      )
-    ))
-  }
-
-}
-
-
-
-######################################################.
-##### COVERAGE: Investigate coverage issue (GEE) #####
-######################################################.
-
-if (run_cov_gee) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = 24,
-    n_time_points = 7,
-    n_ind_per_cluster = 50,
-    theta = log(0.5),
-    tau = c(0,0.25),
-    sigma = 0.3,
-    data_type = c("normal", "binomial"),
-    analysis = list(
-      "2S GEE EXC" = list(type="2S GEE", params=list(corr="exchangeable")),
-      "2S GEE IND" = list(type="2S GEE", params=list(corr="independence"))
-    ),
-    delay_model = list("Exp"=list(type="exp", params=list(d=1.4)))
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-    sim <- readRDS("../simba.out/sim_cov_gee.simba")
-    print(summary(
-      sim_obj = sim,
-      coverage = list(
-        name = "cov_theta",
-        truth = "theta",
-        estimate = "theta_hat",
-        se = "se_theta_hat",
-        na.rm = TRUE
-      )
-    ))
-  }
-
-}
-
-
-
-##############################################################.
-##### COVERAGE: Investigate coverage issue (REML vs. ML) #####
-##############################################################.
-
-if (run_cov_reml) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = c(12,48),
-    n_time_points = 7,
-    n_ind_per_cluster = c(20,100),
-    theta = log(0.5),
-    tau = c(0,0.25),
-    sigma = 0.3,
-    data_type = "normal",
-    analysis = list(
-      "2S LMM REML" = list(type="2S LMM", params=list(REML=TRUE)),
-      "2S LMM ML" = list(type="2S LMM", params=list(REML=FALSE))
-    ),
-    delay_model = list("Exp"=list(type="exp", params=list(d=1.4)))
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-    sim <- readRDS("../simba.out/sim_cov_reml.simba")
-    print(summary(
-      sim_obj = sim,
-      coverage = list(
-        name = "cov_theta",
-        truth = "theta",
-        estimate = "theta_hat",
-        se = "se_theta_hat",
-        na.rm = TRUE
-      )
-    ))
-  }
-
-}
-
-
-
-###############################################################.
-##### COVERAGE: Investigate coverage issue (H-likelihood) #####
-###############################################################.
-
-if (run_cov_hlik) {
-
-  # Set levels
-  sim %<>% set_levels(
-    n_clusters = 12,
-    n_time_points = 7,
-    n_ind_per_cluster = c(20,100),
-    theta = log(0.5),
-    tau = c(0,0.25),
-    sigma = 3,
-    data_type = "binomial",
-    analysis = list(
-      "2S LM" = list(type="2S LM"),
-      "2S HL" = list(type="2S HL")
-    ),
-    delay_model = list("Exp"=list(type="exp", params=list(d=1.4)))
-  )
-
-  # Run simulation and save output
-  sim %<>% run("one_simulation", sim_uids=.tid)
-  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
-
-  # Output results
-  if (run_results) {
-    sim <- readRDS("../simba.out/sim_cov_hlik.simba")
-    print(summary(
-      sim_obj = sim,
-      coverage = list(
-        name = "cov_theta",
-        truth = "theta",
-        estimate = "theta_hat",
-        se = "se_theta_hat",
-        na.rm = TRUE
-      )
-    ))
   }
 
 }

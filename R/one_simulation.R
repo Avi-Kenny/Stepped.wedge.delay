@@ -1,7 +1,7 @@
 #' Run a single simulation
 #'
 #' @return The list created by `run_analysis`
-#' @export
+
 one_simulation <- function() {
 
   # Generate dataset

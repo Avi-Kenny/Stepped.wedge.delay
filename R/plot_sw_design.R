@@ -3,7 +3,7 @@
 #' @param data A dataset returned by generate_dataset()
 #' @param title Either a character string, or waiver() for no title
 #' @return A ggplot2 plot object representing the design
-#' @export
+
 plot_sw_design <- function(data, title="SW design diagram",
                            compare_to_parallel=FALSE) {
 

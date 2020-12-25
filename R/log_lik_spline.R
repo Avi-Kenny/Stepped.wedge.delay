@@ -2,7 +2,7 @@
 #'
 #' @param sigma_v !!!!! TO DO
 #' @return !!!!! TO DO
-#' @export
+
 log_lik_spline <- function(
   sigma_v, sigma_e, alpha,
   beta_1, beta_2, beta_3, beta_4, beta_5,

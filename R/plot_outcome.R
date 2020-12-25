@@ -6,7 +6,7 @@
 #'     values
 #' @return A ggplot2 plot object: spaghetti plot of mean cluster outcomes over
 #'     time
-#' @export
+
 plot_outcome <- function(data, type) {
 
   if (data$params$type == "binomial") {

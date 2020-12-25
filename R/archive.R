@@ -720,8 +720,531 @@ if (analysis$type=="MSS") {
 
 }
 
+# 11. ETI MCMC using JAGS
+if (analysis$type=="ETI-MCMC") {
+
+  # !!!!! Only coded for Normal data with J=7
+
+  # !!!!! Transform data
+  data_jags <- data$data
+  data_jags %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
+  data_jags %<>% dummy_cols(select_columns="l", remove_first_dummy=TRUE)
+
+  jags_code <- quote("
+      model {
+        for (n in 1:N) {
+          y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+          beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+          + beta_l_1*l_1[n] + beta_l_2*l_2[n] + beta_l_3*l_3[n] +
+          beta_l_4*l_4[n] + beta_l_5*l_5[n] + beta_l_6*l_6[n] + alpha[i[n]],
+          1/(sigma^2))
+        }
+        for (n in 1:I) {
+          alpha[n] ~ dnorm(0, 1/(tau^2))
+        }
+        beta_l_6 ~ dnorm(0, 1.0E-4)
+        beta_l_5 ~ dnorm(0, 1.0E-4)
+        beta_l_4 ~ dnorm(0, 1.0E-4)
+        beta_l_3 ~ dnorm(0, 1.0E-4)
+        beta_l_2 ~ dnorm(0, 1.0E-4)
+        beta_l_1 ~ dnorm(0, 1.0E-4)
+        beta_j_7 ~ dnorm(0, 1.0E-4)
+        beta_j_6 ~ dnorm(0, 1.0E-4)
+        beta_j_5 ~ dnorm(0, 1.0E-4)
+        beta_j_4 ~ dnorm(0, 1.0E-4)
+        beta_j_3 ~ dnorm(0, 1.0E-4)
+        beta_j_2 ~ dnorm(0, 1.0E-4)
+        beta0 ~ dnorm(0, 1.0E-4)
+        tau <- 1/sqrt(tau_prec)
+        tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+        sigma <- 1/sqrt(sigma_prec)
+        sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+      }
+    ")
+  jm <- jags.model(
+    file = textConnection(jags_code),
+    data = list(
+      I = length(unique(data_jags$i)),
+      N = nrow(data_jags),
+      y = data_jags$y,
+      i = data_jags$i,
+      j_2 = data_jags$j_2,
+      j_3 = data_jags$j_3,
+      j_4 = data_jags$j_4,
+      j_5 = data_jags$j_5,
+      j_6 = data_jags$j_6,
+      j_7 = data_jags$j_7,
+      l_1 = data_jags$l_1,
+      l_2 = data_jags$l_2,
+      l_3 = data_jags$l_3,
+      l_4 = data_jags$l_4,
+      l_5 = data_jags$l_5,
+      l_6 = data_jags$l_6
+    ),
+    quiet = FALSE,
+    n.chains = 1,
+    n.adapt = 1000
+  )
+  output <- coda.samples(
+    model = jm,
+    variable.names = c("beta0", "beta_j_2", "beta_j_3", "beta_j_4", "beta_j_5", "beta_j_6", "beta_j_7", "beta_l_1", "beta_l_2", "beta_l_3", "beta_l_4", "beta_l_5", "beta_l_6", "sigma", "tau"),
+    n.iter = 1000,
+    thin = 1
+  )
+
+  # Extract means
+  theta_l_hat <- c()
+  for (i in 1:6) {
+    theta_l_hat[i] <- summary(output)$statistics[paste0("beta_l_",i),"Mean"]
+  }
+
+  # Construct covariance matrix of l terms
+  sigma_l_hat <- matrix(NA, nrow=6, ncol=6)
+  n_samp <- length(output[[1]][,1])
+  for (i in 1:6) {
+    for (j in 1:6) {
+      sigma_l_hat[i,j] <- cov(
+        output[[1]][1:n_samp,paste0("beta_l_",i)],
+        output[[1]][1:n_samp,paste0("beta_l_",j)]
+      )
+    }
+  }
+
+  return (res(theta_l_hat,sigma_l_hat))
+
+}
 
 
-###################.
-##### Section #####
-###################.
+
+#########################.
+##### Trapezoid sum #####
+#########################.
+
+# Trapezoid sum: sum of first len-1 values plus half the last value
+len <- length(theta_l_hat)
+A <- matrix(c(rep(1/len,len-1),(1/len)/2), nrow=1)
+ate_hat <- (A %*% theta_l_hat)[1,1]
+se_ate_hat <- sqrt(A %*% sigma_l_hat %*% t(A))[1,1]
+
+
+
+#############################################################.
+##### MAIN: Reproduce table 3.1 (Granston dissertation) #####
+#############################################################.
+
+if (run_tables3) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = c(12,24,48),
+    n_time_points = 7,
+    n_ind_per_cluster = 100,
+    theta = log(0.5),
+    tau = 0,
+    sigma = 0.3,
+    data_type = c("normal", "binomial"),
+    analysis = c("2S LM", "IG LM"), # !!!!! update
+    delay_model = list(
+      "Exp (d=0)" = list(type="exp", params=list(d=0)),
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.1.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
+    ))
+  }
+
+}
+
+
+
+#############################################################.
+##### MAIN: Reproduce table 3.2 (Granston dissertation) #####
+#############################################################.
+
+if (run_tables3) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 24,
+    n_time_points = c(5,7,9),
+    n_ind_per_cluster = 100,
+    theta = log(0.5),
+    tau = 0,
+    sigma = 0.3,
+    data_type = c("normal", "binomial"),
+    analysis = c("2S LM", "IG LM"), # !!!!! update
+    delay_model = list(
+      "Exp (d=0)" = list(type="exp", params=list(d=0)),
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.2.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
+    ))
+  }
+
+}
+
+
+
+#############################################################.
+##### MAIN: Reproduce table 3.3 (Granston dissertation) #####
+#############################################################.
+
+if (run_tables3) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 24,
+    n_time_points = 7,
+    n_ind_per_cluster = c(20,50,100),
+    theta = log(0.5),
+    tau = 0,
+    sigma = 0.3,
+    data_type = c("normal", "binomial"),
+    analysis = c("2S LM", "IG LM"), # !!!!! update
+    delay_model = list(
+      "Exp (d=0)" = list(type="exp", params=list(d=0)),
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.3.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_theta", truth="theta", estimate="theta_hat")
+    ))
+  }
+
+}
+
+
+
+#############################################################.
+##### MAIN: Reproduce table 3.4 (Granston dissertation) #####
+#############################################################.
+
+if (run_tables3) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = c(12,24,48),
+    n_time_points = 7,
+    n_ind_per_cluster = 100,
+    theta = log(0.5),
+    tau = 0,
+    sigma = 0.3,
+    data_type = c("normal", "binomial"),
+    analysis = list("2S LM"=list(type="2S LM")),
+    delay_model = list(
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.4.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_d", truth="d", estimate="d_hat")
+    ))
+  }
+
+}
+
+
+
+#############################################################.
+##### MAIN: Reproduce table 3.5 (Granston dissertation) #####
+#############################################################.
+
+if (run_tables3) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 24,
+    n_time_points = c(5,7,9),
+    n_ind_per_cluster = 100,
+    theta = log(0.5),
+    tau = 0,
+    sigma = 0.3,
+    data_type = c("normal", "binomial"),
+    analysis = list("2S LM"=list(type="2S LM")),
+    delay_model = list(
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.5.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_d", truth="d", estimate="d_hat")
+    ))
+  }
+
+}
+
+
+
+#############################################################.
+##### MAIN: Reproduce table 3.6 (Granston dissertation) #####
+#############################################################.
+
+if (run_tables3) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 24,
+    n_time_points = 7,
+    n_ind_per_cluster = c(20,50,100),
+    theta = log(0.5),
+    tau = 0,
+    sigma = 0.3,
+    data_type = c("normal", "binomial"),
+    analysis = list("2S LM"=list(type="2S LM")),
+    delay_model = list(
+      "Exp (d=0.5)" = list(type="exp", params=list(d=0.5)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_tab3.6.simba")
+    print(summary(
+      sim_obj = sim,
+      bias = list(name="bias_d", truth="d", estimate="d_hat")
+    ))
+  }
+
+}
+
+
+
+#########################################################.
+##### COVERAGE: Investigate coverage issue (no GEE) #####
+#########################################################.
+
+if (run_cov_nogee) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = c(12,48),
+    n_time_points = 7,
+    n_ind_per_cluster = seq(20, 100, 20),
+    theta = log(0.5),
+    tau = c(0,0.25),
+    sigma = 3,
+    data_type = c("normal", "binomial"),
+    analysis = list(
+      "2S LM" = list(type="2S LM"),
+      "2S LMM REML" = list(type="2S LMM", params=list(REML=TRUE))
+    ),
+    delay_model = list(
+      "Exp (d=0)" = list(type="exp", params=list(d=0)),
+      "Exp (d=1.4)" = list(type="exp", params=list(d=1.4))
+    )
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_cov_nogee.simba")
+    print(summary(
+      sim_obj = sim,
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    ))
+  }
+
+}
+
+
+
+######################################################.
+##### COVERAGE: Investigate coverage issue (GEE) #####
+######################################################.
+
+if (run_cov_gee) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 24,
+    n_time_points = 7,
+    n_ind_per_cluster = 50,
+    theta = log(0.5),
+    tau = c(0,0.25),
+    sigma = 0.3,
+    data_type = c("normal", "binomial"),
+    analysis = list(
+      "2S GEE EXC" = list(type="2S GEE", params=list(corr="exchangeable")),
+      "2S GEE IND" = list(type="2S GEE", params=list(corr="independence"))
+    ),
+    delay_model = list("Exp"=list(type="exp", params=list(d=1.4)))
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_cov_gee.simba")
+    print(summary(
+      sim_obj = sim,
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    ))
+  }
+
+}
+
+
+
+##############################################################.
+##### COVERAGE: Investigate coverage issue (REML vs. ML) #####
+##############################################################.
+
+if (run_cov_reml) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = c(12,48),
+    n_time_points = 7,
+    n_ind_per_cluster = c(20,100),
+    theta = log(0.5),
+    tau = c(0,0.25),
+    sigma = 0.3,
+    data_type = "normal",
+    analysis = list(
+      "2S LMM REML" = list(type="2S LMM", params=list(REML=TRUE)),
+      "2S LMM ML" = list(type="2S LMM", params=list(REML=FALSE))
+    ),
+    delay_model = list("Exp"=list(type="exp", params=list(d=1.4)))
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_cov_reml.simba")
+    print(summary(
+      sim_obj = sim,
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    ))
+  }
+
+}
+
+
+
+###############################################################.
+##### COVERAGE: Investigate coverage issue (H-likelihood) #####
+###############################################################.
+
+if (run_cov_hlik) {
+
+  # Set levels
+  sim %<>% set_levels(
+    n_clusters = 12,
+    n_time_points = 7,
+    n_ind_per_cluster = c(20,100),
+    theta = log(0.5),
+    tau = c(0,0.25),
+    sigma = 3,
+    data_type = "binomial",
+    analysis = list(
+      "2S LM" = list(type="2S LM"),
+      "2S HL" = list(type="2S HL")
+    ),
+    delay_model = list("Exp"=list(type="exp", params=list(d=1.4)))
+  )
+
+  # Run simulation and save output
+  sim %<>% run("one_simulation", sim_uids=.tid)
+  saveRDS(sim, file=paste0("../simba.out/sim_",.tid,".simba"))
+
+  # Output results
+  if (run_results) {
+    sim <- readRDS("../simba.out/sim_cov_hlik.simba")
+    print(summary(
+      sim_obj = sim,
+      coverage = list(
+        name = "cov_theta",
+        truth = "theta",
+        estimate = "theta_hat",
+        se = "se_theta_hat",
+        na.rm = TRUE
+      )
+    ))
+  }
+
+}
+
+
+

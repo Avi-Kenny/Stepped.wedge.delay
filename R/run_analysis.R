@@ -1,42 +1,38 @@
 #' Run the data analysis
 #'
 #' @param data A dataset returned by generate_dataset()
-#' @param analysis A list containing `type` (a character string) and
-#'     optionally `params` (a list that differs in structure depending on type).
-#'       Possible values of `type` include:
-#'         - "HH" (Hussey & Hughes; ignores delay)
-#'         - "ETI" ("exposure treatment indicators" model)
-#'         - "SS" (smoothing spline model)
-#'       ARCHIVED values of `type` include:
-#'         - "SPL" (linear spline model)
-#'         - "MSS" (monotonic smoothing spline model)
-#'         - "2S LM" (two-stage with linear model in first stage)
-#'         - "2S GEE" (two-stage with GEE in first stage)
-#'         - "2S LMM" (two-stage with linear mixed model in first stage)
-#'         - "2S HL" (two-stage with H-likelihood in first stage)
-#'         - "Last" (use last time point only)
-#'         - "WASH" ("washout" model)
-#'       Possible values of `params` include:
-#'         - For type="2S GEE", params should equal list(corr=c), where values
-#'           of `c` include "exchangeable" and "independence"
-#'         - For type="WASH", params should equal list(length=k), where `k` is
-#'           the length of the washout period (i.e. the number of time steps to
-#'           discard).
-#'         - For type="2S LMM", params should equal list(REML=r), where values
-#'           of `r` include TRUE (fit using REML) and FALSE (fit using ML).
-#'         - For type="SPL", params show equal list(knots=k, mono=TRUE), where
-#'           `k` is a vector of knots (x-coordinates; excluding the knot at x=0)
-#'           and mono is TRUE/FALSE (indicating whether to force the spline to
-#'           be monotonic)
-#'
-#'         - !!!!! Need to add ignore=TRUE to params
+#' @param analysis One of the following character strings:
+#'     - "HH": Hussey & Hughes; ignores delay
+#'     - "ETI": "exposure treatment indicators" model
+#'     - "SS": smoothing spline model
+#'     - "MCMC-SPL": linear spline (ETI) using JAGS
+#'     - "MCMC-SPL-MON": monotonic linear spline (ETI) using JAGS
 #' @param data_type Type of data being analyzed ("binomial" or "normal")
 #' @param L Passed via simba; list of simulation levels
 #' @param C Passed via simba; list of simulation constants
-#' @return TO DO
-#' @export
-# FN: generate_dataset
+#' @return A list of key-value pairs, containing the following:
+#'     - ate_hat: ATE estimate
+#'     - se_ate_hat: Standard error of ATE estimate
+#'     - lte_hat: LTE estimate
+#'     - se_lte_hat: Standard error of LTE estimate
+
 run_analysis <- function(data, analysis, data_type, L, C) {
+
+  # Helper function to calculate ATE and LTE
+  res <- function(theta_l_hat, sigma_l_hat) {
+
+    # Rectangular Riemann sum (i.e. average of theta_l_hats)
+    len <- length(theta_l_hat)
+    A <- matrix(rep(1/len,len), nrow=1)
+
+    return (list(
+      ate_hat = (A %*% theta_l_hat)[1,1],
+      se_ate_hat = sqrt(A %*% sigma_l_hat %*% t(A))[1,1],
+      lte_hat = theta_l_hat[len],
+      se_lte_hat = sqrt(sigma_l_hat[len,len])
+    ))
+
+  }
 
   if (analysis$type=="HH") {
 
@@ -54,13 +50,12 @@ run_analysis <- function(data, analysis, data_type, L, C) {
       )
     }
 
-    # Extract estimate and SE
-    ate_hat <- summary(model)$coefficients["x_ij",1] # same as theta_hat
-    se_ate_hat <- summary(model)$coefficients["x_ij",2] # same as se_theta_hat
-
+    # Extract estimates and SEs
     return (list(
-      ate_hat = ate_hat,
-      se_ate_hat = se_ate_hat
+      ate_hat = summary(model)$coefficients["x_ij",1],
+      se_ate_hat = summary(model)$coefficients["x_ij",2],
+      lte_hat = summary(model)$coefficients["x_ij",1],
+      se_lte_hat = summary(model)$coefficients["x_ij",2]
     ))
 
   }
@@ -90,16 +85,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     sigma_l_hat <- sigma_l_hat[indices,indices]
     sigma_l_hat <- as.matrix(sigma_l_hat)
 
-    # Trapezoid sum: sum of first len-1 values plus half the last value
-    len <- length(theta_l_hat)
-    A <- matrix(c(rep(1/len,len-1),(1/len)/2), nrow=1)
-    ate_hat <- (A %*% theta_l_hat)[1,1]
-    se_ate_hat <- sqrt(A %*% sigma_l_hat %*% t(A))[1,1]
-
-    return (list(
-      ate_hat = ate_hat,
-      se_ate_hat = se_ate_hat
-    ))
+    return (res(theta_l_hat,sigma_l_hat))
 
   }
 
@@ -152,39 +138,51 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     coeff_names <- coeff_names[indices]
     sigma_l_hat <- sigma_l_hat[indices,indices]
 
-    # Trapezoid sum: sum of first len-1 values plus half the last value
-    len <- length(theta_l_hat)
-    A <- matrix(c(rep(1/len,len-1),(1/len)/2), nrow=1)
-    ate_hat <- (A %*% theta_l_hat)[1,1]
-    se_ate_hat <- sqrt(A %*% sigma_l_hat %*% t(A))[1,1]
-
-    return (list(
-      ate_hat = ate_hat,
-      se_ate_hat = se_ate_hat
-    ))
+    return (res(theta_l_hat,sigma_l_hat))
 
   }
 
-  if (analysis$type=="MON") {
+  if (analysis$type=="ETI-SPL-MCMC") {
 
-    # !!!!!
-    summary(lmer(
-      y ~ j + (1|i),
-      # y ~ factor(j) + factor(l) + (1|i),
-      data = data$data
-    ))
+    # !!!!! Only coded for Normal data with J=7
 
-    library(rjags)
+    # !!!!! Transform data
+    data_jags <- data$data
+    data_jags %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
+    data_jags %<>% mutate(
+      s_1 = l,
+      s_2 = pmax(0,l-1),
+      s_3 = pmax(0,l-2),
+      s_4 = pmax(0,l-3),
+      s_5 = pmax(0,l-4),
+      s_6 = pmax(0,l-5)
+    )
+
     jags_code <- quote("
       model {
         for (n in 1:N) {
-          y[n] ~ dnorm(beta0 + beta1*j[n] + alpha[i[n]], 1/(sigma^2))
+          y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+          beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+          + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+          beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+          1/(sigma^2))
         }
         for (n in 1:I) {
           alpha[n] ~ dnorm(0, 1/(tau^2))
         }
-        beta1 ~ dnorm(0.0, 1.0E-4)
-        beta0 ~ dnorm(0.0, 1.0E-4)
+        beta_s_6 ~ dnorm(0, 1.0E-4)
+        beta_s_5 ~ dnorm(0, 1.0E-4)
+        beta_s_4 ~ dnorm(0, 1.0E-4)
+        beta_s_3 ~ dnorm(0, 1.0E-4)
+        beta_s_2 ~ dnorm(0, 1.0E-4)
+        beta_s_1 ~ dnorm(0, 1.0E-4)
+        beta_j_7 ~ dnorm(0, 1.0E-4)
+        beta_j_6 ~ dnorm(0, 1.0E-4)
+        beta_j_5 ~ dnorm(0, 1.0E-4)
+        beta_j_4 ~ dnorm(0, 1.0E-4)
+        beta_j_3 ~ dnorm(0, 1.0E-4)
+        beta_j_2 ~ dnorm(0, 1.0E-4)
+        beta0 ~ dnorm(0, 1.0E-4)
         tau <- 1/sqrt(tau_prec)
         tau_prec ~ dgamma(1.0E-3, 1.0E-3)
         sigma <- 1/sqrt(sigma_prec)
@@ -194,11 +192,22 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     jm <- jags.model(
       file = textConnection(jags_code),
       data = list(
-        I = length(unique(data$data$i)),
-        N = nrow(data$data),
-        y = data$data$y,
-        i = data$data$i,
-        j = data$data$j
+        I = length(unique(data_jags$i)),
+        N = nrow(data_jags),
+        y = data_jags$y,
+        i = data_jags$i,
+        j_2 = data_jags$j_2,
+        j_3 = data_jags$j_3,
+        j_4 = data_jags$j_4,
+        j_5 = data_jags$j_5,
+        j_6 = data_jags$j_6,
+        j_7 = data_jags$j_7,
+        s_1 = data_jags$s_1,
+        s_2 = data_jags$s_2,
+        s_3 = data_jags$s_3,
+        s_4 = data_jags$s_4,
+        s_5 = data_jags$s_5,
+        s_6 = data_jags$s_6
       ),
       quiet = FALSE,
       n.chains = 1,
@@ -206,11 +215,161 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     )
     output <- coda.samples(
       model = jm,
-      variable.names = c("beta0", "beta1", "sigma", "tau"),
+      variable.names = c("beta0", "beta_j_2", "beta_j_3", "beta_j_4", "beta_j_5", "beta_j_6", "beta_j_7", "beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4", "beta_s_5", "beta_s_6", "sigma", "tau"),
       n.iter = 1000,
       thin = 1
     )
-    summary(output)
+
+    # Extract beta_s means
+    beta_s_hat <- c()
+    for (i in 1:6) {
+      beta_s_hat[i] <- summary(output)$statistics[paste0("beta_s_",i),"Mean"]
+    }
+
+    # Construct covariance matrix of s terms
+    sigma_s_hat <- matrix(NA, nrow=6, ncol=6)
+    n_samp <- length(output[[1]][,1])
+    for (i in 1:6) {
+      for (j in 1:6) {
+        sigma_s_hat[i,j] <- cov(
+          output[[1]][1:n_samp,paste0("beta_s_",i)],
+          output[[1]][1:n_samp,paste0("beta_s_",j)]
+        )
+      }
+    }
+
+    # Calculate theta_l_hat vector and sigma_l_hat matrix
+    B = rbind(
+      c(1,0,0,0,0,0),
+      c(2,1,0,0,0,0),
+      c(3,2,1,0,0,0),
+      c(4,3,2,1,0,0),
+      c(5,4,3,2,1,0),
+      c(6,5,4,3,2,1)
+    )
+    theta_l_hat <- B %*% beta_s_hat
+    sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
+
+    return (res(theta_l_hat,sigma_l_hat))
+
+  }
+
+  if (analysis$type=="ETI-SPL-MON-MCMC") {
+
+    # !!!!! Only coded for Normal data with J=7
+
+    # !!!!! Transform data
+    data_jags <- data$data
+    data_jags %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
+    data_jags %<>% mutate(
+      s_1 = l,
+      s_2 = pmax(0,l-1),
+      s_3 = pmax(0,l-2),
+      s_4 = pmax(0,l-3),
+      s_5 = pmax(0,l-4),
+      s_6 = pmax(0,l-5)
+    )
+
+    # !!!!! Currently hard-coded for j==7 and normal data
+    jags_code <- quote("
+      model {
+        for (n in 1:N) {
+          y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+          beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+          + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+          beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+          1/(sigma^2))
+        }
+        for (n in 1:I) {
+          alpha[n] ~ dnorm(0, 1/(tau^2))
+        }
+        beta_s_6 <- exp(alpha_s_5) - exp(alpha_s_6)
+        beta_s_5 <- exp(alpha_s_4) - exp(alpha_s_5)
+        beta_s_4 <- exp(alpha_s_3) - exp(alpha_s_4)
+        beta_s_3 <- exp(alpha_s_2) - exp(alpha_s_3)
+        beta_s_2 <- exp(alpha_s_1) - exp(alpha_s_2)
+        beta_s_1 <- - exp(alpha_s_1)
+        alpha_s_6 ~ dnorm(-10, 1.0E-4)
+        alpha_s_5 ~ dnorm(-10, 1.0E-4)
+        alpha_s_4 ~ dnorm(-10, 1.0E-4)
+        alpha_s_3 ~ dnorm(-10, 1.0E-4)
+        alpha_s_2 ~ dnorm(-10, 1.0E-4)
+        alpha_s_1 ~ dnorm(-10, 1.0E-4)
+        beta_j_7 ~ dnorm(0, 1.0E-4)
+        beta_j_6 ~ dnorm(0, 1.0E-4)
+        beta_j_5 ~ dnorm(0, 1.0E-4)
+        beta_j_4 ~ dnorm(0, 1.0E-4)
+        beta_j_3 ~ dnorm(0, 1.0E-4)
+        beta_j_2 ~ dnorm(0, 1.0E-4)
+        beta0 ~ dnorm(0, 1.0E-4)
+        tau <- 1/sqrt(tau_prec)
+        tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+        sigma <- 1/sqrt(sigma_prec)
+        sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+      }
+    ")
+    jm <- jags.model(
+      file = textConnection(jags_code),
+      data = list(
+        I = length(unique(data_jags$i)),
+        N = nrow(data_jags),
+        y = data_jags$y,
+        i = data_jags$i,
+        j_2 = data_jags$j_2,
+        j_3 = data_jags$j_3,
+        j_4 = data_jags$j_4,
+        j_5 = data_jags$j_5,
+        j_6 = data_jags$j_6,
+        j_7 = data_jags$j_7,
+        s_1 = data_jags$s_1,
+        s_2 = data_jags$s_2,
+        s_3 = data_jags$s_3,
+        s_4 = data_jags$s_4,
+        s_5 = data_jags$s_5,
+        s_6 = data_jags$s_6
+      ),
+      quiet = FALSE,
+      n.chains = 1,
+      n.adapt = 1000
+    )
+    output <- coda.samples(
+      model = jm,
+      variable.names = c("beta0", "beta_j_2", "beta_j_3", "beta_j_4", "beta_j_5", "beta_j_6", "beta_j_7", "beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4", "beta_s_5", "beta_s_6", "sigma", "tau"),
+      n.iter = 1000,
+      thin = 1
+    )
+
+    # Extract beta_s means
+    beta_s_hat <- c()
+    for (i in 1:6) {
+      beta_s_hat[i] <- summary(output)$statistics[paste0("beta_s_",i),"Mean"]
+    }
+
+    # Construct covariance matrix of s terms
+    sigma_s_hat <- matrix(NA, nrow=6, ncol=6)
+    n_samp <- length(output[[1]][,1])
+    for (i in 1:6) {
+      for (j in 1:6) {
+        sigma_s_hat[i,j] <- cov(
+          output[[1]][1:n_samp,paste0("beta_s_",i)],
+          output[[1]][1:n_samp,paste0("beta_s_",j)]
+        )
+      }
+    }
+
+    # Calculate theta_l_hat vector and sigma_l_hat matrix
+    B = rbind(
+      c(1,0,0,0,0,0),
+      c(2,1,0,0,0,0),
+      c(3,2,1,0,0,0),
+      c(4,3,2,1,0,0),
+      c(5,4,3,2,1,0),
+      c(6,5,4,3,2,1)
+    )
+    theta_l_hat <- B %*% beta_s_hat
+    sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
+
+    return (res(theta_l_hat,sigma_l_hat))
 
   }
 

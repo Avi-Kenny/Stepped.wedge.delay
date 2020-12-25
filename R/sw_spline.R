@@ -7,8 +7,8 @@
 #'     knot at x=0)
 #' @param slopes Num vector that specifies slopes between knots (including the
 #'     knot at x=0)
-#' @return
-#' @export
+#' @return !!!!! TO DO
+
 sw_spline <- function(x, knots, slopes) {
 
   if (length(knots)!=length(slopes)) {
