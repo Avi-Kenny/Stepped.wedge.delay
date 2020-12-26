@@ -43,3 +43,4 @@ lagresults.csv
 # SIMBA raw output files
 simba.out/simba.out
 *.simba
+R/scratch.R

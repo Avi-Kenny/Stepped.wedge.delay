@@ -19,7 +19,7 @@ one_simulation <- function() {
 
   results <- run_analysis(
     data = data,
-    analysis = L$analysis,
+    method = L$method,
     data_type = L$data_type,
     L = L,
     C = C

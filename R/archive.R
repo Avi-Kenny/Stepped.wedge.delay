@@ -1248,3 +1248,357 @@ if (run_cov_hlik) {
 
 
 
+#########################.
+##### TESTING: PMLE #####
+#########################.
+
+if (run_testing_pmle) {
+
+  # First, test the case where we have only one observation per cluster
+
+  # Generate dataset
+  data <- generate_dataset(
+    alpha = log(0.1),
+    tau = 0,
+    theta = log(0.5),
+    n_clusters = 48,
+    n_time_points = 7,
+    n_ind_per_cluster = 50,
+    data_type = "normal",
+    sigma = 3,
+    delay_model = list(type="exp", params=list(d=1.4))
+  )
+
+  # Estimator with mgcv (smooth for Tx effect)
+  model <- gamm(
+    y ~ factor(j) + s(l, k=7, fx=FALSE, bs="cr", m=2, pc=0),
+    random = list(i=~1),
+    data = data$data
+  )
+  est <- predict(model$gam, newdata=list(j=1, l=6), type = "terms")[2]
+  se <- summary(model$gam)$se[[length(summary(model$gam)$se)]]
+
+  # Estimator with mgcv (smooths for Tx effect and time)
+  model <- gamm(
+    y ~ s(j, k=7, fx=FALSE, bs="cr", m=2, pc=0) +
+      s(l, k=7, fx=FALSE, bs="cr", m=2, pc=0),
+    random = list(i=~1),
+    data = data$data
+  )
+  est <- predict(model$gam, newdata=list(j=1, l=6), type = "terms")[2]
+  se <- summary(model$gam)$se[[length(summary(model$gam)$se)]]
+
+}
+
+
+
+##################################################.
+##### MISC: Check MLE calculation (Granston) #####
+##################################################.
+
+if (run_misc) {
+
+  J <- 5
+  theta_hat_l <- matrix(1:J,ncol=1)
+  mu_d <- matrix(0.3*c(3:(J+2)),ncol=1)
+  A <- matrix(runif(J^2)*2-1, ncol=J)
+  sigma_inv <- t(A) %*% A
+
+  neg_log_lik <- function(theta) {
+    return(
+      (1/2) * t(theta_hat_l-(theta*mu_d)) %*%
+        sigma_inv %*%
+        (theta_hat_l-(theta*mu_d))
+    )
+  }
+
+  optim(
+    par = 6,
+    fn = function(x) {
+      return ( neg_log_lik(x) )
+    },
+    method = "BFGS"
+  )
+
+  mle_ank <- (
+    (t(theta_hat_l) %*% sigma_inv %*% mu_d) +
+      t((t(theta_hat_l) %*% sigma_inv %*% mu_d))) /
+    (2* t(mu_d) %*% sigma_inv %*% mu_d)
+  mle_tsg <- (t(theta_hat_l) %*% sigma_inv %*% mu_d) /
+    (t(mu_d) %*% sigma_inv %*% mu_d)
+
+  print(mle_ank)
+  print(mle_tsg)
+
+}
+
+
+
+####################################################.
+##### MISC: Graph of linear spline alternative #####
+####################################################.
+
+if (run_misc) {
+
+  ggplot(data.frame(x=c(0,6)), aes(x=x)) +
+    stat_function(fun = function(x) {
+      return ( 0.7*x + (0.3/5 - 0.7)*pmax(0,x-1) )
+    }) +
+    geom_point(aes(x=0, y=0)) +
+    geom_point(aes(x=6, y=1), colour="green") +
+    geom_point(aes(x=1, y=0.7), colour="purple") +
+    labs(
+      title = "Linear spline model for R_il",
+      y = "R_il (% of treatment effect achieved)",
+      x = "Time since implementation (l_i)"
+    )
+
+}
+
+
+
+#############################################################.
+##### ARCHIVE: Old code related to two-stage approaches #####
+#############################################################.
+
+if (FALSE) {
+
+  # Negative log lik corresponding to two-stage dissertation approach
+  sim %<>% add_method(
+    "neg_log_lik",
+    function(theta, d, J, theta_l_hat, sigma_l_hat) {
+
+      l_times <- 1:(J-1)
+      mu_d <- 1-exp(-l_times/d)
+      log_lik <- -0.5 * t(theta_l_hat - theta*mu_d) %*%
+        solve(sigma_l_hat) %*% (theta_l_hat - theta*mu_d)
+
+      return (-1*log_lik)
+
+    }
+  )
+
+  # Negative log lik corresponding to two-stage spline approach
+  sim %<>% add_method(
+    "neg_log_lik_spl",
+    function(theta, p_x, p_y, J, theta_l_hat, sigma_l_hat) {
+
+      # !!!!! g_x hard-coded for now
+      g_x <- J
+
+      l_times <- 1:(J-1)
+      mu_spl <- sapply(l_times, function(l) {
+        I1 <- ifelse(0<l & l<=p_x, 1, 0)
+        I2 <- ifelse(p_x<l & l<=g_x, 1, 0)
+        I3 <- ifelse(g_x<l, 1, 0)
+        (p_y/p_x)*l*I1 + ((1-p_y)*l+g_x+p_y-p_x-1)/(g_x-p_x)*I2 + I3
+      })
+
+      log_lik <- -0.5 * t(theta_l_hat - theta*mu_spl) %*%
+        solve(sigma_l_hat) %*% (theta_l_hat - theta*mu_spl)
+
+      return (-1*log_lik)
+
+    }
+  )
+
+
+
+  # Method corresponding to "semiparametric stochastic..." paper
+
+  # Compute the closed-form estimator
+  Y <- data$data$y
+  I <- data$params$n_clusters
+  J <- data$params$n_time_points
+  K <- data$params$n_ind_per_cluster
+  int_times <- data$data %>%
+    group_by(i,j) %>% summarize(l=max(l))
+  s <- matrix(int_times$l, nrow=I, byrow=TRUE)
+
+  for (i in 1:I) {
+    for (j in 1:J) {
+      N_ij <- matrix(0, nrow=K, ncol=J-1)
+      N_ij[,s[i,j]] <- 1
+      T_ij <- matrix(0, nrow=K, ncol=J-1)
+      if (j!=J) { T_ij[,j] <- 1 }
+      if (i==1 && j==1) {
+        N <- N_ij
+        mtx_T <- T_ij
+      } else {
+        N <- rbind(N,N_ij)
+        mtx_T <- rbind(mtx_T,T_ij)
+      }
+    }
+  }
+
+  Q <- matrix(0, nrow=J-1, ncol=J-3)
+  for (j in 1:(J-3)) {
+    Q[j,j] <- 1
+    Q[j+1,j] <- -2
+    Q[j+2,j] <- 1
+  }
+  R <- matrix(0, nrow=J-3, ncol=J-3)
+  for (j in 1:(J-3)) {
+    if (j>1) { R[j-1,j] <- 1/6 }
+    R[j,j] <- 2/3
+    if (j<J-3) { R[j+1,j] <- 1/6 }
+  }
+
+  # Construct variance component estimators
+  V_s <- tau * (t(B_s) %*% B_s) + V
+  X_s <- cbind(X, N %*% mtx_T)
+  beta_hat_s <- 999
+  V_s_inv <- solve(V_s)
+  l_R <- (-1/2) * (
+    log(det(V_s)) + log(det( t(X_s) %*% V_s_inv * X_s )) +
+      t(Y - (X_s %*% beta_hat_s)) %*% V_s_inv %*% (Y - (X_s %*% beta_hat_s))
+  )
+
+  K_star <- Q %*% solve(R) %*% t(Q)
+  simga2_e <- 0.01 # !!!!!
+  sigma2_gamma <- 0.01 # !!!!!
+  var_sum <- simga2_e + sigma2_gamma
+  W <- diag(rep(1/var_sum,I*J*K))
+  V <- diag(rep(var_sum,I*J*K))
+  X <- cbind(matrix(1, nrow=I*J*K, ncol=1), mtx_T)
+  W_f <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
+  lambda <- 20 # !!!!!
+  f_hat <- solve(t(N) %*% W_f %*% N + lambda * K_star) %*% t(N) %*% W_f %*% Y
+
+  # Plot delay model vs f_hat
+  theta <- log(0.5)
+  d2 <- sapply(seq(0,6,0.1), function(x) {
+    theta * ifelse(x>0,1,0) * (1-exp(-x/1))
+  })
+  # Plot functions
+  ggplot(
+    data.frame(
+      x = c(c(0:(J-1)), seq(0,6,0.1)),
+      y = c(0,f_hat,d2),
+      fn = c(rep("f_hat",J),rep("Exp (d=1)",61))
+    ),
+    aes(x=x, y=y, color=fn)
+  ) +
+    geom_line() +
+    labs(x="Time (steps)", y="Intervention effect")
+
+
+
+  print(paste("Number of available cores:", parallel::detectCores()))
+  print(paste("SLURM_ARRAY_JOB_ID:", Sys.getenv("SLURM_ARRAY_JOB_ID")))
+  print(paste("SLURM_CPUS_ON_NODE:", Sys.getenv("SLURM_CPUS_ON_NODE")))
+  print(paste("SLURM_NODELIST:", Sys.getenv("SLURM_NODELIST")))
+  print(paste("SLURM_NNODES:", Sys.getenv("SLURM_NNODES")))
+  print(paste("SLURM_NTASKS:", Sys.getenv("SLURM_NTASKS")))
+
+  summary(
+    sim_obj = sim,
+    sd = list(
+      list(name="sd_theta_hat", x="theta_hat"),
+      list(name="sd_d_hat", x="d_hat")
+    ),
+    bias = list(
+      list(name="bias_theta", truth="theta", estimate="theta_hat"),
+      list(name="bias_d", truth="d", estimate="d_hat")
+    ),
+    coverage = list(
+      list(name="cov_theta", truth="theta",
+           estimate="theta_hat", se="se_theta_hat"),
+      list(name="cov_d", truth="d", estimate="d_hat", se="se_d_hat")
+    )
+  )
+
+  # Plots
+  plot_sw_design(data_1)
+  plot_outcome(data_1, type="no error")
+  plot_outcome(data_1, type="realized")
+
+  # Binomial GLM
+  model_binomial_gee1 <- geeglm(
+    y ~ factor(j) + factor(x_ij),
+    data = data$data,
+    id = i,
+    family = binomial(link = "log"),
+    corstr = "exchangeable"
+  )
+  summary(model_binomial_gee1)
+  system.time(
+    model_binomial_gee2 <- geeglm(
+      y ~ factor(j) + factor(l),
+      data = data$data,
+      id = i,
+      family = binomial(link = "log"),
+      corstr = "exchangeable"
+    )
+  )
+  summary(model_gee2)
+
+  # Only estimate theta (step function)
+  model_normal_gee1 <- geeglm(
+    y ~ factor(j) + factor(x_ij),
+    data = data$data,
+    id = i,
+    family = "gaussian",
+    corstr = "exchangeable"
+  )
+  summary(model_normal_gee1)
+
+}
+
+
+
+#############################################.
+##### ARCHIVE: log likelihood of spline #####
+#############################################.
+
+#' Return the log likelihood for the spline model
+#'
+#' @param sigma_v !!!!! TO DO
+#' @return !!!!! TO DO
+
+log_lik_spline <- function(
+  sigma_v, sigma_e, alpha,
+  beta_1, beta_2, beta_3, beta_4, beta_5,
+  theta, p_x, p_y, g_x, data
+) {
+
+  I <- data$params$n_clusters
+  J <- data$params$n_time_points
+  K <- data$params$n_ind_per_cluster
+  beta <- c(beta_1, beta_2, beta_3, beta_4, beta_5)
+
+  # !!!!! Can speed this up by calculating this in advance
+  df <- data$data %>% mutate(
+    r_ij = r_ij(p_x, p_y, g_x, c_i, j),
+    s = y - alpha - beta[j] - theta*r_ij,
+    t = s^2
+  )
+
+  df_sum <- df %>% group_by(i) %>% summarize(
+    s = sum(s),
+    t = sum(t)
+  )
+
+  s_i <- df_sum$s
+  t_i <- df_sum$t
+
+  t1 <- (I/2) *
+    log((2*pi*(sigma_e^2)*(sigma_v^2))/((sigma_e^2)+(J*K*(sigma_v^2))))
+  t2 <- (sigma_v^2)/(2*(sigma_e^2)*((sigma_e^2)+J*K*(sigma_v^2)))
+  t3 <- sum(s_i^2-t_i)
+
+  return(t1 + t2*t3)
+
+}
+
+
+
+# Helper function to calculate the spline log likelihood (above)
+r_ij <- function(p_x, p_y, g_x, c_i, j) {
+
+  I1 <- ifelse(c_i<j & j<=c_i+p_x, 1, 0)
+  I2 <- ifelse(c_i+p_x<j & j<=c_i+g_x, 1, 0)
+  I3 <- ifelse(c_i+g_x<j, 1, 0)
+  (p_y/p_x)*(j-c_i)*I1 + (((c_i-j+1)*(p_y-1))/(g_x-p_x)+1)*I2 + I3
+
+}

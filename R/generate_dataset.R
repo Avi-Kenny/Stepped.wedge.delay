@@ -10,11 +10,8 @@
 #' @param data_type Type of outcome; options include "binomial" or "normal"
 #' @param sigma Standard deviation of the outcome (if data_type="normal"; omit
 #'     otherwise)
-#' @param delay_model A list containing `type` ("exp" or "spline") and `params`
-#'     (a list). For type="exp", params=list(d=d). For type="spline",
-#'     params=list(knots=k, slopes=s), where k and s are vectors (see
-#'     documentation for sw_spline function). For type="parabola",
-#'     params=list(a=a, b=b, c=c), corresponding to the parabola y=ax^2+bx+c
+#' @param delay_model A list containing `type` and `params`, that will be passed
+#'     to effect_curve()
 #' @return A list containing the following: \cr
 #'     * `params`: a list of the parameters supplied in the function call \cr
 #'     * `data`: the resulting data frame
@@ -50,35 +47,11 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
   })
 
   # Create theta_ls (intervention effects) based on continuous fn "delay_model"
-  theta_ls <- sapply(1:(n_time_points-1), function(l){
-
-    if (delay_model$type == "exp") {
-
-      return ( theta * (1-exp(-l/delay_model$params$d)) )
-
-    } else if (delay_model$type == "spline") {
-
-      return (
-        theta * sw_spline(
-          x = l,
-          knots = delay_model$params$knots,
-          slopes = delay_model$params$slopes
-        )
-      )
-
-    } else if (delay_model$type == "parabola") {
-
-      return (
-        theta * (
-          delay_model$params$a * l^2 +
-          delay_model$params$b * l +
-          delay_model$params$c
-        )
-      )
-
-    }
-
-  })
+  theta_ls <- theta * effect_curve(
+    x = 1:(n_time_points-1),
+    type = delay_model$type,
+    params = delay_model$params
+  )
 
   # Loop through clusters, time, and individuals
   for (i in 1:n_clusters) {

@@ -1,7 +1,7 @@
 #' Run the data analysis
 #'
 #' @param data A dataset returned by generate_dataset()
-#' @param analysis One of the following character strings:
+#' @param method One of the following character strings:
 #'     - "HH": Hussey & Hughes; ignores delay
 #'     - "ETI": "exposure treatment indicators" model
 #'     - "SS": smoothing spline model
@@ -16,7 +16,7 @@
 #'     - lte_hat: LTE estimate
 #'     - se_lte_hat: Standard error of LTE estimate
 
-run_analysis <- function(data, analysis, data_type, L, C) {
+run_analysis <- function(data, method, data_type, L, C) {
 
   # Helper function to calculate ATE and LTE
   res <- function(theta_l_hat, sigma_l_hat) {
@@ -26,6 +26,12 @@ run_analysis <- function(data, analysis, data_type, L, C) {
     A <- matrix(rep(1/len,len), nrow=1)
 
     return (list(
+      s1 = theta_l_hat[1],
+      s2 = theta_l_hat[2],
+      s3 = theta_l_hat[3],
+      s4 = theta_l_hat[4],
+      s5 = theta_l_hat[5],
+      s6 = theta_l_hat[6],
       ate_hat = (A %*% theta_l_hat)[1,1],
       se_ate_hat = sqrt(A %*% sigma_l_hat %*% t(A))[1,1],
       lte_hat = theta_l_hat[len],
@@ -34,7 +40,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   }
 
-  if (analysis$type=="HH") {
+  if (method=="HH") {
 
     # Run GLMM
     if (data_type=="normal") {
@@ -60,7 +66,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   }
 
-  if (analysis$type=="ETI") {
+  if (method=="ETI") {
 
     # Run GLMM
     if (data_type=="normal") {
@@ -89,44 +95,23 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   }
 
-  if (analysis$type=="SS") {
+  if (method=="SS") {
 
     J <- L$n_time_points
 
     if (data_type=="normal") {
-      if (analysis$params$t==1) {
-        model <- gamm(
-          y ~ factor(j) + s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
-          random = list(i=~1),
-          data = data$data
-        )
-      } else if (analysis$params$t==2) {
-        model <- gamm(
-          y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
-            s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
-          random = list(i=~1),
-          data = data$data
-        )
-      }
+      model <- gamm(
+        y ~ factor(j) + s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
+        random = list(i=~1),
+        data = data$data
+      )
     } else if (data_type=="binomial") {
-
-      if (analysis$params$t==1) {
-        model <- gamm(
-          y ~ factor(j) + s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
-          random = list(i=~1),
-          data = data$data,
-          family = "binomial" # binomial(link="log")
-        )
-      } else if (analysis$params$t==2) {
-        model <- gamm(
-          y ~ s(j, k=J, fx=FALSE, bs="cr", m=2, pc=0) +
-            s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
-          random = list(i=~1),
-          data = data$data,
-          family = "binomial" # binomial(link="log")
-        )
-      }
-
+      model <- gamm(
+        y ~ factor(j) + s(l, k=J, fx=FALSE, bs="cr", m=2, pc=0),
+        random = list(i=~1),
+        data = data$data,
+        family = "binomial" # binomial(link="log")
+      )
     }
 
     theta_l_hat <- sapply(c(1:(J-1)), function(l) {
@@ -142,7 +127,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   }
 
-  if (analysis$type=="ETI-SPL-MCMC") {
+  if (method=="ETI-SPL-MCMC") {
 
     # !!!!! Only coded for Normal data with J=7
 
@@ -254,7 +239,7 @@ run_analysis <- function(data, analysis, data_type, L, C) {
 
   }
 
-  if (analysis$type=="ETI-SPL-MON-MCMC") {
+  if (method=="ETI-SPL-MON-MCMC") {
 
     # !!!!! Only coded for Normal data with J=7
 

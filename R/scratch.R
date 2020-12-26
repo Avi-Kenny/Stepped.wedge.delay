@@ -2,7 +2,7 @@
 # Setup
 if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") { setwd("C:/Users/avike/OneDrive/Desktop/Avi/Biostats + Research/Research/Jim Hughes/Project - Stepped wedge lag/z.stepped.wedge/R") } else { setwd("z.stepped.wedge/R") }
 library(dplyr); library(magrittr); library(ggplot2); library(lme4); library(geepack); library(car); library(stringr); library(simba); library(parallel); library(glmmTMB); library(restriktor); library(mgcv); library(scam)
-source("generate_dataset.R"); source("log_lik_spline.R"); source("one_simulation.R"); source("plot_outcome.R"); source("plot_sw_design.R"); source("run_analysis.R"); source("sw_spline.R")
+source("generate_dataset.R"); source("log_lik_spline.R"); source("one_simulation.R"); source("plot_outcome.R"); source("plot_sw_design.R"); source("run_analysis.R"); source("effect_curve.R")
 
 # Generate dataset for testing
 data <- generate_dataset(
