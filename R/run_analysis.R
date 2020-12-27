@@ -26,12 +26,6 @@ run_analysis <- function(data, method, data_type, L, C) {
     A <- matrix(rep(1/len,len), nrow=1)
 
     return (list(
-      s1 = theta_l_hat[1],
-      s2 = theta_l_hat[2],
-      s3 = theta_l_hat[3],
-      s4 = theta_l_hat[4],
-      s5 = theta_l_hat[5],
-      s6 = theta_l_hat[6],
       ate_hat = (A %*% theta_l_hat)[1,1],
       se_ate_hat = sqrt(A %*% sigma_l_hat %*% t(A))[1,1],
       lte_hat = theta_l_hat[len],
@@ -127,7 +121,7 @@ run_analysis <- function(data, method, data_type, L, C) {
 
   }
 
-  if (method=="ETI-SPL-MCMC") {
+  if (method=="MCMC-SPL") {
 
     # !!!!! Only coded for Normal data with J=7
 
@@ -239,7 +233,7 @@ run_analysis <- function(data, method, data_type, L, C) {
 
   }
 
-  if (method=="ETI-SPL-MON-MCMC") {
+  if (method=="MCMC-SPL-MON") {
 
     # !!!!! Only coded for Normal data with J=7
 

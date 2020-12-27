@@ -36,6 +36,30 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
 
 
 
+########################################.
+##### SETUP: Load packages locally #####
+########################################.
+
+if (FALSE) {
+
+  library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
+  library(dplyr)
+  library(stringr)
+  library(lme4)
+  library(rjags)
+  library(sqldf)
+  library(glmmTMB)
+  library(mgcv)
+  library(fastDummies)
+  library(scales)
+  library(car)
+  library(ggplot2)
+  library(parallel)
+
+}
+
+
+
 ###################################################################.
 ##### TESTING: Generate code for testing new analysis methods #####
 ###################################################################.
@@ -77,36 +101,13 @@ if (FALSE) {
 
 
 
-########################################.
-##### SETUP: Load packages locally #####
-########################################.
-
-if (FALSE) {
-
-  library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
-  library(dplyr)
-  library(ggplot2)
-  library(lme4)
-  library(car)
-  library(stringr)
-  library(parallel)
-  library(glmmTMB)
-  library(mgcv)
-  library(scales)
-  library(fastDummies)
-  library(rjags)
-
-}
-
-
-
 #################################.
 ##### MAIN: Main simulation #####
 #################################.
 
 # Commands for job sumbission on Slurm:
 # sbatch --export=run='first',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
-# sbatch --depend=afterok:11 --array=1-15 --export=cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
+# sbatch --depend=afterok:11 --array=1-16 --export=run='main',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
 # sbatch --depend=afterok:12 --export=run='last',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
 
 if (run_main) {
@@ -120,9 +121,10 @@ if (run_main) {
       # Set up and configure simba object
       sim <- new_sim()
       sim %<>% set_config(
-        num_sim = 5, # !!!!!
+        num_sim = 1000, # !!!!!
         parallel = "none",
-        packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", # "geepack", "restriktor", "scam", "gamlss"
+        stop_at_error = FALSE,
+        packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", "sqldf", # "geepack", "restriktor", "scam", "gamlss"
                      "glmmTMB", "mgcv", "fastDummies", "scales", "car")
       )
       sim %<>% add_constants(
@@ -144,17 +146,23 @@ if (run_main) {
         tau = 1,
         sigma = 2.1, # 2.1 = sqrt(50*0.1*(1-0.1))
         data_type = "normal",
-        method = c("ETI", "MCMC-SPL", "MCMC-SPL-MON"),
+        method = c("HH", "ETI", "MCMC-SPL", "MCMC-SPL-MON"),
         delay_model = list(
-          "Step" = list(type="exp", params=list(d=0)),
-          "Exponential" = list(type="exp", params=list(d=1.4)),
-          "Linear spline" = list(
+          "Instantaneous" = list(
             type = "spline",
-            params = list(knots=c(0,2,4),slopes=c(0.1,0.4))
+            params = list(knots=c(0,1), slopes=1)
           ),
-          "Delayed step" = list(
+          "Lagged" = list(
             type = "spline",
-            params = list(knots=c(0,2,3),slopes=c(0,1))
+            params = list(knots=c(0,2,3), slopes=c(0,1))
+          ),
+          "Curved" = list(
+            type = "exp",
+            params = list(d=1.5)
+          ),
+          "Partially convex" = list(
+            type = "spline",
+            params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
           )
         )
       )
@@ -190,45 +198,96 @@ if (run_process_results) {
   # Read in simulation object
   # sim <- readRDS("../simba.out/sim_main_1026.simba")
 
-  # Generate true ATE value
+  # sim <- readRDS("simtest.simba")# !!!!!
+
+  # Generate true ATE values
   sim$results %<>% mutate(
-    ate = ifelse(delay_model=="EXP (d=0)", round(theta*1,4),
-          ifelse(delay_model=="EXP (d=1.4)", round(theta*0.77,4),
-          ifelse(delay_model=="SPL (k=2,4 s=0.1,0.4)", round(theta*0.57,4),
-                 999)))
+    ate = case_when(
+      delay_model=="Instantaneous" ~ theta,
+      delay_model=="Lagged" ~ theta * mean(effect_curve(
+        x=c(1:6), type="spline", params=list(knots=c(0,2,3),slopes=c(0,1))
+      )),
+      delay_model=="Curved" ~ theta * mean(effect_curve(
+        x=c(1:6), type="exp", params=list(d=1.5)
+      )),
+      delay_model=="Partially convex" ~ theta * mean(effect_curve(
+        x=c(1:6), type="spline", params=list(knots=c(0,2,4),slopes=c(0.1,0.4))
+      ))
+    )
   )
 
   # Summarize data
   summ <- summary(
     sim_obj = sim,
-    mean = list(all=TRUE, na.rm=TRUE),
-    quantile = list(
-      list(name="q025_ate", x="ate_hat", prob=0.025, na.rm=TRUE),
-      list(name="q975_ate", x="ate_hat", prob=0.975, na.rm=TRUE)
+    mean = list(
+      list(name="ate", x="ate"),
+      list(name="mean_ate", x="ate_hat"),
+      list(name="mean_lte", x="lte_hat")
     ),
+    bias = list(
+      list(name="bias_ate", estimate="ate_hat", truth="ate"),
+      list(name="bias_lte", estimate="lte_hat", truth="theta")
+    ),
+    mse = list(
+      list(name="mse_ate", estimate="ate_hat", truth="ate"),
+      list(name="mse_lte", estimate="lte_hat", truth="theta")
+    ),
+    # quantile = list(
+    #   list(name="q025_ate", x="ate_hat", prob=0.025, na.rm=TRUE),
+    #   list(name="q975_ate", x="ate_hat", prob=0.975, na.rm=TRUE)
+    # ),
     coverage = list(
-      list(
-        name = "cov_ate",
-        truth = "ate",
-        estimate = "ate_hat",
-        se = "se_ate_hat",
-        na.rm = TRUE
-      ),
-      list(
-        name = "beta",
-        truth = 0,
-        estimate = "ate_hat",
-        se = "se_ate_hat",
-        na.rm = TRUE
-      )
+      list(name="cov_ate", truth="ate", estimate="ate_hat", se="se_ate_hat"),
+      list(name="cov_lte", truth="theta", estimate="lte_hat", se="se_lte_hat"),
+      list(name="beta_ate", truth=0, estimate="ate_hat", se="se_ate_hat"),
+      list(name="beta_lte", truth=0, estimate="lte_hat", se="se_lte_hat")
     )
   )
 
+  # Drop some columns
+  summ %<>% subset(select=-c(1:4,6:8))
+
   # Transform summary data (1)
   summ %<>% mutate(
-    method = factor(method, levels=c("HH","ETI","SS")),
-    power = 1 - beta
+    method = factor(method, levels=c("HH","ETI","SS","MCMC-SPL",
+                                     "MCMC-SPL-MON")),
+    delay_model = factor(delay_model, levels=c("Instantaneous","Lagged",
+                                               "Curved","Partially convex")),
+    power_ate = 1 - beta_ate,
+    power_lte = 1 - beta_lte
   )
+
+  # !!!!! Viz
+  p_data <- sqldf("
+    SELECT method, delay_model, 'ATE' AS which, bias_ate AS bias,
+    cov_ate AS coverage, power_ate AS power, mse_ate AS mse FROM summ
+    UNION SELECT method, delay_model, 'LTE', bias_lte,
+    cov_lte, power_lte, mse_lte FROM summ
+  ")
+  p_data <- sqldf("
+    SELECT method, delay_model, which, 'bias' AS stat, bias AS value FROM p_data
+    UNION SELECT method, delay_model, which, 'coverage', coverage FROM p_data
+    UNION SELECT method, delay_model, which, 'power', power FROM p_data
+    UNION SELECT method, delay_model, which, 'mse', mse FROM p_data
+  ")
+
+  ggplot(
+    filter(p_data, stat!="power"),
+    aes(x=which, y=value, fill=method)
+  ) +
+    geom_bar(stat="identity", position=position_dodge(), width=0.8, color="white") +
+    facet_grid(cols=vars(delay_model), rows=vars(stat), scales="free") +
+    theme(legend.position="bottom") +
+    scale_fill_viridis(discrete=TRUE) +
+    # scale_fill_manual(values=viridis(4)) +
+    labs(y=NULL, x=NULL)
+    # scale_fill_brewer(palette="viridis")
+    #
+
+  #
+
+
+  # Pivot data
 
   # Transform summary data (2)
   summ$theta_log <- rep(NA, nrow(summ))
@@ -803,10 +862,12 @@ if (run_misc) {
                      params=list(knots=c(0,2,3), slopes=c(0,1)))
   d3 <- effect_curve(seq(0,6,0.1), type="exp", params=list(d=1.4))
   d4 <- effect_curve(seq(0,6,0.1), type="non-monotonic", params=NULL)
-  d5 <- sapply(seq(0,6,0.1), function(x) { sin(((pi*x)/12)-pi/2)+1 })
+  # d5 <- sapply(seq(0,6,0.1), function(x) { sin(((pi*x)/12)-pi/2)+1 })
+  d5 <- effect_curve(seq(0,6,0.1), type="spline",
+                     params=list(knots=c(0,2,4), slopes=c(0.1,0.4)))
 
   curve_labels <- c("(a) Instantaneous","(b) Lagged","(c) Curved",
-                    "(d) Non-monotonic","(e) Convex")
+                    "(d) Non-monotonic","(e) Partially convex")
 
   # Plot functions
   # Export: PDF 8"x3"
@@ -826,7 +887,7 @@ if (run_misc) {
 }
 
 ###########################################################.
-##### MISC: Plots to illustrate "modified X" approach #####
+##### MISC: Graphs to illustrate "modified X" approach #####
 ###########################################################.
 
 if (run_misc) {

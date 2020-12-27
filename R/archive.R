@@ -1602,3 +1602,75 @@ r_ij <- function(p_x, p_y, g_x, c_i, j) {
   (p_y/p_x)*(j-c_i)*I1 + (((c_i-j+1)*(p_y-1))/(g_x-p_x)+1)*I2 + I3
 
 }
+
+
+
+#####################################.
+##### MAIN: Process sim results #####
+#####################################.
+
+if (run_process_results) {
+
+  # Read in simulation object
+  # sim <- readRDS("../simba.out/sim_main_1026.simba")
+
+  # Generate true ATE value
+  sim$results %<>% mutate(
+    ate = ifelse(delay_model=="EXP (d=0)", round(theta*1,4),
+                 ifelse(delay_model=="EXP (d=1.4)", round(theta*0.77,4),
+                        ifelse(delay_model=="SPL (k=2,4 s=0.1,0.4)", round(theta*0.57,4),
+                               999)))
+  )
+
+  # Summarize data
+  summ <- summary(
+    sim_obj = sim,
+    mean = list(all=TRUE, na.rm=TRUE),
+    quantile = list(
+      list(name="q025_ate", x="ate_hat", prob=0.025, na.rm=TRUE),
+      list(name="q975_ate", x="ate_hat", prob=0.975, na.rm=TRUE)
+    ),
+    coverage = list(
+      list(
+        name = "cov_ate",
+        truth = "ate",
+        estimate = "ate_hat",
+        se = "se_ate_hat",
+        na.rm = TRUE
+      ),
+      list(
+        name = "beta",
+        truth = 0,
+        estimate = "ate_hat",
+        se = "se_ate_hat",
+        na.rm = TRUE
+      )
+    )
+  )
+
+  # Transform summary data (1)
+  summ %<>% mutate(
+    method = factor(method, levels=c("HH","ETI","SS")),
+    power = 1 - beta
+  )
+
+  # Transform summary data (2)
+  summ$theta_log <- rep(NA, nrow(summ))
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.7,
+                           "log(0.5)", summ$theta_log)
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.5,
+                           "log(0.6)", summ$theta_log)
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.4,
+                           "log(0.7)", summ$theta_log)
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.2,
+                           "log(0.8)", summ$theta_log)
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.1,
+                           "log(0.9)", summ$theta_log)
+  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==0,
+                           "log(1.0)", summ$theta_log)
+  summ$theta_log <- as.factor(summ$theta_log)
+
+}
+
+
+
