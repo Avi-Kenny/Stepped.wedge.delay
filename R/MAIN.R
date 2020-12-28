@@ -55,43 +55,29 @@ if (FALSE) {
   library(car)
   library(ggplot2)
   library(parallel)
+  library(viridis)
 
 }
 
 
 
-###################################################################.
-##### TESTING: Generate code for testing new analysis methods #####
-###################################################################.
+######################################################################.
+##### TESTING: Generate dataset for testing new analysis methods #####
+######################################################################.
 
 if (FALSE) {
 
-  # Generate dataset (normal data)
+  # Generate dataset
   data <- generate_dataset(
     alpha = log(0.1),
     tau = 1,
-    theta = log(0.5),
-    n_clusters = 24,
-    n_time_points = 7,
-    n_ind_per_cluster = 20,
-    data_type = "normal",
-    sigma = 0.1, # 0.3
-    # delay_model = list(type="parabola", params=list(a=(-1/16), b=(1/2), c=0))
-    # delay_model = list(type="spline", params=list(knots=c(0,6), slopes=(1/6)))
-    delay_model = list(type="exp", params=list(d=1.4))
-  )
-
-  # Generate dataset (binomial data)
-  # Exp model w/ theta=log(0.5) and d=1.4 --> ATE = -0.534
-  data <- generate_dataset(
-    alpha = log(0.1),
-    tau = 1,
-    theta = log(0.5),
+    theta = -0.5,
     n_clusters = 24,
     n_time_points = 7,
     n_ind_per_cluster = 50,
-    data_type = "binomial",
-    delay_model = list(type="exp", params=list(d=1.4))
+    data_type = "normal", # "binomial"
+    sigma = 2.1,
+    delay_model = list(type="exp", params=list(d=1.5))
   )
 
   # Set number of time points
@@ -196,9 +182,7 @@ if (run_main) {
 if (run_process_results) {
 
   # Read in simulation object
-  # sim <- readRDS("../simba.out/sim_main_1026.simba")
-
-  # sim <- readRDS("simtest.simba")# !!!!!
+  sim <- readRDS("../simba.out/sim_20201227.simba")
 
   # Generate true ATE values
   sim$results %<>% mutate(
@@ -278,16 +262,12 @@ if (run_process_results) {
     geom_bar(stat="identity", position=position_dodge(), width=0.8, color="white") +
     facet_grid(cols=vars(delay_model), rows=vars(stat), scales="free") +
     theme(legend.position="bottom") +
-    scale_fill_viridis(discrete=TRUE) +
-    # scale_fill_manual(values=viridis(4)) +
+    scale_fill_manual(values=viridis(5)[1:4]) +
     labs(y=NULL, x=NULL)
-    # scale_fill_brewer(palette="viridis")
-    #
-
-  #
 
 
-  # Pivot data
+
+
 
   # Transform summary data (2)
   summ$theta_log <- rep(NA, nrow(summ))

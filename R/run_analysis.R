@@ -125,7 +125,6 @@ run_analysis <- function(data, method, data_type, L, C) {
 
     # !!!!! Only coded for Normal data with J=7
 
-    # !!!!! Transform data
     data_jags <- data$data
     data_jags %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
     data_jags %<>% mutate(
@@ -194,6 +193,7 @@ run_analysis <- function(data, method, data_type, L, C) {
     )
     output <- coda.samples(
       model = jm,
+      # variable.names = c("beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4", "beta_s_5", "beta_s_6"),
       variable.names = c("beta0", "beta_j_2", "beta_j_3", "beta_j_4", "beta_j_5", "beta_j_6", "beta_j_7", "beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4", "beta_s_5", "beta_s_6", "sigma", "tau"),
       n.iter = 1000,
       thin = 1
@@ -237,7 +237,6 @@ run_analysis <- function(data, method, data_type, L, C) {
 
     # !!!!! Only coded for Normal data with J=7
 
-    # !!!!! Transform data
     data_jags <- data$data
     data_jags %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
     data_jags %<>% mutate(
@@ -249,7 +248,9 @@ run_analysis <- function(data, method, data_type, L, C) {
       s_6 = pmax(0,l-5)
     )
 
-    # !!!!! Currently hard-coded for j==7 and normal data
+    # We want the prior for each beta_s_i to be roughly U(-10,10)
+    # This leads us to ive
+
     jags_code <- quote("
       model {
         for (n in 1:N) {
@@ -268,12 +269,12 @@ run_analysis <- function(data, method, data_type, L, C) {
         beta_s_3 <- exp(alpha_s_2) - exp(alpha_s_3)
         beta_s_2 <- exp(alpha_s_1) - exp(alpha_s_2)
         beta_s_1 <- - exp(alpha_s_1)
-        alpha_s_6 ~ dnorm(-10, 1.0E-4)
-        alpha_s_5 ~ dnorm(-10, 1.0E-4)
-        alpha_s_4 ~ dnorm(-10, 1.0E-4)
-        alpha_s_3 ~ dnorm(-10, 1.0E-4)
-        alpha_s_2 ~ dnorm(-10, 1.0E-4)
-        alpha_s_1 ~ dnorm(-10, 1.0E-4)
+        alpha_s_6 ~ dnorm(0, 1.0E-2)
+        alpha_s_5 ~ dnorm(0, 1.0E-2)
+        alpha_s_4 ~ dnorm(0, 1.0E-2)
+        alpha_s_3 ~ dnorm(0, 1.0E-2)
+        alpha_s_2 ~ dnorm(0, 1.0E-2)
+        alpha_s_1 ~ dnorm(0, 1.0E-2)
         beta_j_7 ~ dnorm(0, 1.0E-4)
         beta_j_6 ~ dnorm(0, 1.0E-4)
         beta_j_5 ~ dnorm(0, 1.0E-4)
@@ -313,13 +314,33 @@ run_analysis <- function(data, method, data_type, L, C) {
     )
     output <- coda.samples(
       model = jm,
-      variable.names = c("beta0", "beta_j_2", "beta_j_3", "beta_j_4", "beta_j_5", "beta_j_6", "beta_j_7", "beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4", "beta_s_5", "beta_s_6", "sigma", "tau"),
+      variable.names = c("beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4", "beta_s_5", "beta_s_6"),
+      # variable.names = c("beta0", "alpha_s_1", "alpha_s_2", "beta_s_1", "beta_s_2", "tau"),
       n.iter = 1000,
       thin = 1
     )
 
+    # !!!!! MCMC diagnostics
+    # output <- output_reg
+    # output <- output_mono
+    n_samp <- length(output[[1]][,1])
+    var <- "alpha_s_1"
+    c1 <- output[[1]][1:n_samp,var]
+    c2 <- output[[2]][1:n_samp,var]
+    c3 <- output[[3]][1:n_samp,var]
+    c4 <- output[[4]][1:n_samp,var]
+    ggplot(
+      data.frame(
+        x = rep(c(1:n_samp),4),
+        y = c(c1,c2,c3,c4),
+        chain = rep(c(1:4), each=n_samp)
+      ),
+      aes(x=x, y=y, color=factor(chain))) +
+      geom_line()
+
+
     # Extract beta_s means
-    beta_s_hat <- c()
+      beta_s_hat <- c()
     for (i in 1:6) {
       beta_s_hat[i] <- summary(output)$statistics[paste0("beta_s_",i),"Mean"]
     }
