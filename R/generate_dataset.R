@@ -12,13 +12,15 @@
 #'     otherwise)
 #' @param delay_model A list containing `type` and `params`, that will be passed
 #'     to effect_curve()
+#' @param n_extra_time_points Number of extra time points at the end of the
+#'     study (all clusters are in the treatment state)
 #' @return A list containing the following: \cr
 #'     * `params`: a list of the parameters supplied in the function call \cr
 #'     * `data`: the resulting data frame
 
 generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
                              n_ind_per_cluster, data_type, sigma=NA,
-                             delay_model) {
+                             delay_model, n_extra_time_points) {
 
   # Generate data frame
   data <- data.frame(
@@ -59,19 +61,24 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
     v_i <- rnorm(1, mean=0, sd=tau)
     c_i <- crossover_times[i]-1
 
-    for (j in 1:n_time_points) {
+    for (j in 1:(n_time_points+n_extra_time_points)) {
 
       x_ij <- ifelse(j<crossover_times[i], 0, 1)
       l <- ifelse(j<crossover_times[i], 0, (j-crossover_times[i])+1)
 
-      theta_l <- ifelse(l>0, theta_ls[l], 0)
+      if (l<=length(theta_ls)) {
+        theta_l <- ifelse(l>0, theta_ls[l], 0)
+      } else {
+        # This will only be reached for j>n_time_points, i.e. when
+        #     n_extra_time_points>0
+        theta_l <- theta_ls[length(theta_ls)]
+      }
 
       if (data_type=="normal") {
         y_ij <- alpha + beta_js[j] + theta_l*x_ij + v_i
       } else if (data_type=="binomial") {
         expit <- function(x) {1/(exp(-x)+1)}
-        y_ij <- expit(alpha + beta_js[j] + theta_l*x_ij + v_i) # !!!!! Should we use exp() or expit() ?????
-        # y_ij <- exp(alpha + beta_js[j] + theta_l*x_ij + v_i)
+        y_ij <- expit(alpha + beta_js[j] + theta_l*x_ij + v_i)
       } else {
         stop ("`data_type` must be either 'normal' or 'binomial'")
       }
@@ -84,11 +91,10 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
           y_ij=rep(y_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y
         )))
       } else if (data_type=="binomial") {
-        if (y_ij>1) {
-          # Only possible if using exp() link instead of expit()
-          warning(paste0("Probability y_ij=",y_ij,", so y_ij was set to 1"))
-          y_ij <- 1
-        }
+        # if (y_ij>1) {
+        #   warning(paste0("Probability y_ij=",y_ij,", so y_ij was set to 1"))
+        #   y_ij <- 1
+        # }
         y <- rbinom(n=k, size=1, prob=y_ij)
         data <- rbind(data, data.frame(cbind(
           i=rep(i,k), j=rep(j,k), k=c(1:k), l=rep(l,k), v_i=rep(v_i,k),
@@ -97,6 +103,7 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
       }
 
     }
+
   }
 
   params <- as.list(match.call())

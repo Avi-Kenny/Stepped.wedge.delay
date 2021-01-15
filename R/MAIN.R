@@ -69,20 +69,145 @@ if (FALSE) {
 
   # Generate dataset
   data <- generate_dataset(
-    alpha = log(0.1),
-    tau = 1,
-    theta = -0.5,
     n_clusters = 24,
     n_time_points = 7,
     n_ind_per_cluster = 50,
-    data_type = "normal", # "binomial"
+    theta = -0.5,
+    tau = 1,
+    alpha = -2,
+    data_type = "normal",
     sigma = 2.1,
-    delay_model = list(type="exp", params=list(d=1.5))
+    delay_model = list(type="exp", params=list(d=1.5)),
+    n_extra_time_points = 0
   )
 
   # Set number of time points
   J <- data$params$n_time_points
 
+}
+
+
+
+##########################################################.
+##### MAIN: Set level sets for different simulations #####
+##########################################################.
+
+if (run_main) {
+  if (Sys.getenv("run") %in% c("first", "")) {
+
+    # Simulation 1: compare all methods
+    # simga==2.1 corresponds to n_ind==40: sqrt(50*0.1*(1-0.1))
+    level_set_1 <- list(
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = 50,
+      theta = -0.5,
+      tau = 1,
+      sigma = 2.1,
+      data_type = "normal",
+      method = c("HH", "ETI", "MCMC-SPL-MON", "MCMC-STEP-MON"),
+      delay_model = list(
+        "Instantaneous" = list(
+          type = "spline",
+          params = list(knots=c(0,1), slopes=1)
+        ),
+        "Lagged" = list(
+          type = "spline",
+          params = list(knots=c(0,2,3), slopes=c(0,1))
+        ),
+        "Curved" = list(
+          type = "exp",
+          params = list(d=1.5)
+        ),
+        "Partially convex" = list(
+          type = "spline",
+          params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
+        )
+      ),
+      n_extra_time_points = 0
+    )
+
+    # Simulation 2: compare all methods (power)
+    level_set_2 <- list(
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = 50,
+      theta = seq(-0.5,0,0.1),
+      tau = 1,
+      sigma = 2.1,
+      data_type = "normal",
+      method = c("HH", "ETI", "MCMC-SPL-MON", "MCMC-STEP-MON"),
+      delay_model = list(
+        "Instantaneous" = list(
+          type = "spline",
+          params = list(knots=c(0,1), slopes=1)
+        ),
+        "Lagged" = list(
+          type = "spline",
+          params = list(knots=c(0,2,3), slopes=c(0,1))
+        ),
+        "Curved" = list(
+          type = "exp",
+          params = list(d=1.5)
+        ),
+        "Partially convex" = list(
+          type = "spline",
+          params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
+        )
+      ),
+      n_extra_time_points = 0
+    )
+
+    # Simulation 3: Modulate n_extra_time_points
+    level_set_2 <- list(
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = 50,
+      theta = -0.5,
+      tau = 1,
+      sigma = 2.1,
+      data_type = "normal",
+      method = "ETI",
+      delay_model = list(
+        "Instantaneous" = list(
+          type = "spline",
+          params = list(knots=c(0,1), slopes=1)
+        ),
+        "Lagged" = list(
+          type = "spline",
+          params = list(knots=c(0,2,3), slopes=c(0,1))
+        ),
+        "Curved" = list(
+          type = "exp",
+          params = list(d=1.5)
+        ),
+        "Partially convex" = list(
+          type = "spline",
+          params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
+        )
+      ),
+      n_extra_time_points = c(0,1,2)
+    )
+
+    # Simulation 4: !!!!!
+    level_set_3 <- list(...)
+
+  }
+}
+
+
+
+################################################.
+##### MAIN: Choose which simulation to run #####
+################################################.
+
+if (run_main) {
+  if (Sys.getenv("run") %in% c("first", "")) {
+
+    # Set this manually
+    level_set <- level_set_1
+
+  }
 }
 
 
@@ -96,7 +221,19 @@ if (FALSE) {
 # sbatch --depend=afterok:11 --array=1-16 --export=run='main',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
 # sbatch --depend=afterok:12 --export=run='last',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
 
+# Commands for job sumbission on SGE:
+# qsub -v run='first',cluster='bayes',type='R',project='z.stepped.wedge' -cwd -e ./io/ -o ./io/ run_r.sh
+# qsub -hold_jid 1992344 -t 1-3 -v run='main',cluster='bayes',type='R',project='z.stepped.wedge' -cwd -e ./io/ -o ./io/ run_r.sh
+# qsub -hold_jid 1992345 -v run='last',cluster='bayes',type='R',project='z.stepped.wedge' -cwd -e ./io/ -o ./io/ run_r.sh
+
 if (run_main) {
+
+  # install.packages(
+  #   pkgs = "rjags",
+  #   lib = "/home/students/avikenny/Desktop/R_lib",
+  #   repos = "http://cran.us.r-project.org",
+  #   dependencies = TRUE
+  # )
 
   library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
 
@@ -109,13 +246,11 @@ if (run_main) {
       sim %<>% set_config(
         num_sim = 1000, # !!!!!
         parallel = "none",
-        stop_at_error = FALSE,
+        stop_at_error = FALSE, # !!!!!
         packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", "sqldf", # "geepack", "restriktor", "scam", "gamlss"
                      "glmmTMB", "mgcv", "fastDummies", "scales", "car")
       )
-      sim %<>% add_constants(
-        alpha = log(0.1)
-      )
+      sim %<>% add_constants(alpha = -2)
 
       # Add functions to simba object
       sim %<>% add_creator(generate_dataset)
@@ -124,34 +259,7 @@ if (run_main) {
       sim %<>% add_method(effect_curve)
 
       # Set levels
-      sim %<>% set_levels(
-        n_clusters = 24,
-        n_time_points = 7,
-        n_ind_per_cluster = 50,
-        theta = -0.5, # seq(-0.5,0,0.1)
-        tau = 1,
-        sigma = 2.1, # 2.1 = sqrt(50*0.1*(1-0.1))
-        data_type = "normal",
-        method = c("HH", "ETI", "MCMC-SPL", "MCMC-SPL-MON"),
-        delay_model = list(
-          "Instantaneous" = list(
-            type = "spline",
-            params = list(knots=c(0,1), slopes=1)
-          ),
-          "Lagged" = list(
-            type = "spline",
-            params = list(knots=c(0,2,3), slopes=c(0,1))
-          ),
-          "Curved" = list(
-            type = "exp",
-            params = list(d=1.5)
-          ),
-          "Partially convex" = list(
-            type = "spline",
-            params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
-          )
-        )
-      )
+      sim <- do.call(set_levels, c(list(sim), level_set))
 
     },
 
@@ -161,10 +269,12 @@ if (run_main) {
 
     last = {
       sim %>% summary() %>% print()
+      sim$errors %>% print()
     },
 
     cluster_config = list(
-      sim_var = "sim",
+      # js = "sge",
+      # dir = "/home/students/avikenny/Desktop/z.stepped.wedge"
       js = "slurm",
       dir = "/home/akenny/z.stepped.wedge"
     )
@@ -231,7 +341,7 @@ if (run_process_results) {
   # Drop some columns
   summ %<>% subset(select=-c(1:4,6:8))
 
-  # Transform summary data (1)
+  # Transform summary data
   summ %<>% mutate(
     method = factor(method, levels=c("HH","ETI","SS","MCMC-SPL",
                                      "MCMC-SPL-MON")),
@@ -240,8 +350,6 @@ if (run_process_results) {
     power_ate = 1 - beta_ate,
     power_lte = 1 - beta_lte
   )
-
-  # !!!!! Viz
   p_data <- sqldf("
     SELECT method, delay_model, 'ATE' AS which, bias_ate AS bias,
     cov_ate AS coverage, power_ate AS power, mse_ate AS mse FROM summ
@@ -255,6 +363,7 @@ if (run_process_results) {
     UNION SELECT method, delay_model, which, 'mse', mse FROM p_data
   ")
 
+  # Plot results
   ggplot(
     filter(p_data, stat!="power"),
     aes(x=which, y=value, fill=method)
@@ -264,26 +373,6 @@ if (run_process_results) {
     theme(legend.position="bottom") +
     scale_fill_manual(values=viridis(5)[1:4]) +
     labs(y=NULL, x=NULL)
-
-
-
-
-
-  # Transform summary data (2)
-  summ$theta_log <- rep(NA, nrow(summ))
-  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.7,
-                           "log(0.5)", summ$theta_log)
-  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.5,
-                           "log(0.6)", summ$theta_log)
-  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.4,
-                           "log(0.7)", summ$theta_log)
-  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.2,
-                           "log(0.8)", summ$theta_log)
-  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==-0.1,
-                           "log(0.9)", summ$theta_log)
-  summ$theta_log <- ifelse(round(as.numeric(summ$theta),1)==0,
-                           "log(1.0)", summ$theta_log)
-  summ$theta_log <- as.factor(summ$theta_log)
 
 }
 

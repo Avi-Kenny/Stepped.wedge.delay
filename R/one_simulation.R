@@ -14,7 +14,8 @@ one_simulation <- function() {
     n_ind_per_cluster = L$n_ind_per_cluster,
     data_type = L$data_type,
     sigma = L$sigma,
-    delay_model = L$delay_model
+    delay_model = L$delay_model,
+    n_extra_time_points = L$n_extra_time_points
   )
 
   results <- run_analysis(
