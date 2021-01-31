@@ -47,6 +47,8 @@ if (FALSE) {
   library(stringr)
   library(lme4)
   library(rjags)
+  # library(rstan)
+  # library(INLA)
   library(sqldf)
   library(glmmTMB)
   library(mgcv)
@@ -71,13 +73,13 @@ if (FALSE) {
   data <- generate_dataset(
     n_clusters = 24,
     n_time_points = 7,
-    n_ind_per_cluster = 50,
+    n_ind_per_cluster = 5, # 50
     theta = -0.5,
     tau = 1,
     alpha = -2,
     data_type = "normal",
-    sigma = 2.1,
-    delay_model = list(type="exp", params=list(d=1.5)),
+    sigma = 0.5, # 2.1
+    delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
     n_extra_time_points = 0
   )
 
@@ -96,7 +98,6 @@ if (run_main) {
   if (Sys.getenv("run") %in% c("first", "")) {
 
     # Simulation 1: compare all methods
-    # simga==2.1 corresponds to n_ind==40: sqrt(50*0.1*(1-0.1))
     level_set_1 <- list(
       n_clusters = 24,
       n_time_points = 7,
@@ -105,7 +106,18 @@ if (run_main) {
       tau = 1,
       sigma = 2.1,
       data_type = "normal",
-      method = c("HH", "ETI", "MCMC-SPL-MON", "MCMC-STEP-MON"),
+      method = list(
+        # "HH" = list(method="HH"),
+        "ETI" = list(method="ETI"),
+        # "MCMC-STEP (exp; N(1,10) prior)" = list(method="MCMC-STEP-MON",
+        #                                     enforce="exp; N(1,10) prior"),
+        "MCMC-STEP (exp; mix prior 0.1)" = list(method="MCMC-STEP-MON",
+                                                enforce="exp; mix prior 0.1"),
+        "MCMC-STEP (exp; mix prior 0.2)" = list(method="MCMC-STEP-MON",
+                                                enforce="exp; mix prior 0.2"),
+        "MCMC-STEP (exp; mix prior 0.3)" = list(method="MCMC-STEP-MON",
+                                            enforce="exp; mix prior 0.3")
+      ),
       delay_model = list(
         "Instantaneous" = list(
           type = "spline",
@@ -136,7 +148,12 @@ if (run_main) {
       tau = 1,
       sigma = 2.1,
       data_type = "normal",
-      method = c("HH", "ETI", "MCMC-SPL-MON", "MCMC-STEP-MON"),
+      method = list(
+        "HH" = list(method="HH"),
+        "ETI" = list(method="ETI"),
+        "MCMC-STEP (exp; mix prior 0.2)" = list(method="MCMC-STEP-MON",
+                                                enforce="exp; mix prior 0.2")
+      ),
       delay_model = list(
         "Instantaneous" = list(
           type = "spline",
@@ -158,8 +175,8 @@ if (run_main) {
       n_extra_time_points = 0
     )
 
-    # Simulation 3: Modulate n_extra_time_points
-    level_set_2 <- list(
+    # Simulation 3: n_extra_time_points
+    level_set_3 <- list(
       n_clusters = 24,
       n_time_points = 7,
       n_ind_per_cluster = 50,
@@ -167,7 +184,7 @@ if (run_main) {
       tau = 1,
       sigma = 2.1,
       data_type = "normal",
-      method = "ETI",
+      method = list("ETI" = list(method="ETI")),
       delay_model = list(
         "Instantaneous" = list(
           type = "spline",
@@ -189,8 +206,40 @@ if (run_main) {
       n_extra_time_points = c(0,1,2)
     )
 
-    # Simulation 4: !!!!!
-    level_set_3 <- list(...)
+    # Simulation 4: effect_reached
+    level_set_4 <- list(
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = 50,
+      theta = -0.5,
+      tau = 1,
+      sigma = 2.1,
+      data_type = "normal",
+      method = list(
+        "HH" = list(method="HH"),
+        "ETI (effect_reached=0)" = list(method="ETI", effect_reached=0),
+        "ETI (effect_reached=3)" = list(method="ETI", effect_reached=3),
+        "ETI (effect_reached=4)" = list(method="ETI", effect_reached=4)
+      ),
+      delay_model = list(
+        "Instantaneous" = list(
+          type = "spline",
+          params = list(knots=c(0,1), slopes=1)
+        ),
+        "Lagged" = list(
+          type = "spline",
+          params = list(knots=c(0,2,3), slopes=c(0,1))
+        ),
+        "Partially convex" = list(
+          type = "spline",
+          params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
+        )
+      ),
+      n_extra_time_points = 0
+    )
+
+    # # Simulation 5: !!!!!
+    # level_set_5 <- list(...)
 
   }
 }
@@ -228,13 +277,6 @@ if (run_main) {
 
 if (run_main) {
 
-  # install.packages(
-  #   pkgs = "rjags",
-  #   lib = "/home/students/avikenny/Desktop/R_lib",
-  #   repos = "http://cran.us.r-project.org",
-  #   dependencies = TRUE
-  # )
-
   library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
 
   run_on_cluster(
@@ -247,8 +289,10 @@ if (run_main) {
         num_sim = 1000, # !!!!!
         parallel = "none",
         stop_at_error = FALSE, # !!!!!
-        packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", "sqldf", # "geepack", "restriktor", "scam", "gamlss"
-                     "glmmTMB", "mgcv", "fastDummies", "scales", "car")
+        packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", # "geepack", "restriktor", "scam", "gamlss"
+                     "sqldf", "glmmTMB", "mgcv", "fastDummies", "scales", "car")
+        # packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", "rstan", # "geepack", "restriktor", "scam", "gamlss"
+        #              "sqldf", "glmmTMB", "mgcv", "fastDummies", "scales", "car")
       )
       sim %<>% add_constants(alpha = -2)
 
@@ -292,7 +336,7 @@ if (run_main) {
 if (run_process_results) {
 
   # Read in simulation object
-  sim <- readRDS("../simba.out/sim_20201227.simba")
+  sim <- readRDS("../simba.out/sim_20210131_2.simba")
 
   # Generate true ATE values
   sim$results %<>% mutate(
@@ -343,8 +387,9 @@ if (run_process_results) {
 
   # Transform summary data
   summ %<>% mutate(
-    method = factor(method, levels=c("HH","ETI","SS","MCMC-SPL",
-                                     "MCMC-SPL-MON")),
+    # method = factor(method, levels=c("ETI","MCMC-STEP (exp; mix prior 0.1)","MCMC-STEP (exp; mix prior 0.2)","MCMC-STEP (exp; mix prior 0.3)")), # !!!!!
+    method = factor(method, levels=c("HH","ETI (effect_reached=3)","ETI (effect_reached=4)","ETI (effect_reached=0)")), # !!!!!
+    # method = factor(method, levels=c("HH","ETI","MCMC-STEP (exp; N(1,10) prior)","MCMC-STEP (exp; mix prior 0.2)")), # !!!!!
     delay_model = factor(delay_model, levels=c("Instantaneous","Lagged",
                                                "Curved","Partially convex")),
     power_ate = 1 - beta_ate,
@@ -371,7 +416,7 @@ if (run_process_results) {
     geom_bar(stat="identity", position=position_dodge(), width=0.8, color="white") +
     facet_grid(cols=vars(delay_model), rows=vars(stat), scales="free") +
     theme(legend.position="bottom") +
-    scale_fill_manual(values=viridis(5)[1:4]) +
+    scale_fill_manual(values=viridis(5)) +
     labs(y=NULL, x=NULL)
 
 }
