@@ -1,6 +1,6 @@
 #' Generate one stepped wedge dataset
 #'
-#' @param alpha Log baseline prevalence
+#' @param mu Log baseline prevalence
 #' @param tau Cluster random effect SD
 #' @param theta Treatment effect
 #' @param n_clusters Total number of clusters
@@ -14,13 +14,19 @@
 #'     to effect_curve()
 #' @param n_extra_time_points Number of extra time points at the end of the
 #'     study (all clusters are in the treatment state)
+#' @param rte Specification of random treatment effects. Either NA or a list
+#'     containing `type`, `rho`, and `nu`. `type` can be either "height"
+#'     (allowing the height of the effect curve to vary) or "height+shape"
+#'     (allowing both the height and the shape of the effect curve to vary)).
+#'     `rho` and `nu` correspond to the covariance and RTE sd; see the
+#'     manuscript for details.
 #' @return A list containing the following: \cr
 #'     * `params`: a list of the parameters supplied in the function call \cr
 #'     * `data`: the resulting data frame
 
-generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
+generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
                              n_ind_per_cluster, data_type, sigma=NA,
-                             delay_model, n_extra_time_points) {
+                             delay_model, n_extra_time_points, rte=NA) {
 
   # Generate data frame
   data <- data.frame(
@@ -28,8 +34,6 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
     "j" = integer(), # time; 1=baseline, J=endline
     "k" = integer(), # individual
     "l" = integer(), # time since intervention
-    "v_i" = double(), # cluster random effect
-    "y_ij" = double(), # cluster-level probability or mean
     "x_ij" = integer(), # treatment state indicator
     "c_i" = integer(), # the start time of the treatment
     "y" = integer() # binary outcome
@@ -58,7 +62,34 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
   # Loop through clusters, time, and individuals
   for (i in 1:n_clusters) {
 
-    v_i <- rnorm(1, mean=0, sd=tau)
+    if((is.na(rte))[[1]]) {
+      alpha_i <- rnorm(1, mean=0, sd=tau)
+      eta_i <- 0
+    } else {
+      if(rte$type=="height") {
+        Sigma <- rbind(
+          c(tau^2,rte$rho),
+          c(rte$rho,rte$nu^2)
+        )
+        re <- mvrnorm(n=1, mu=c(0,0), Sigma=Sigma)
+        alpha_i <- re[1]
+        eta_i <- re[2]
+      }
+      if(rte$type=="height+shape") {
+        J <- n_time_points
+        Sigma <- rbind(
+          c(tau^2,rep(rte$rho,J-1)),
+          cbind(
+            rep(rte$rho,J-1),
+            diag(rep(rte$nu^2,J-1))
+          )
+        )
+        re <- mvrnorm(n=1, mu=rep(0,J), Sigma=Sigma)
+        alpha_i <- re[1]
+        eta_it <- re[2:(J-1)]
+      }
+    }
+
     c_i <- crossover_times[i]-1
 
     for (j in 1:(n_time_points+n_extra_time_points)) {
@@ -74,31 +105,33 @@ generate_dataset <- function(alpha, tau, theta, n_clusters, n_time_points,
         theta_l <- theta_ls[length(theta_ls)]
       }
 
-      if (data_type=="normal") {
-        y_ij <- alpha + beta_js[j] + theta_l*x_ij + v_i
-      } else if (data_type=="binomial") {
+      if ((is.na(rte))[[1]] || rte$type=="height") {
+        mu_ij <- mu + beta_js[j] + (theta_l+eta_i)*x_ij + alpha_i
+      } else if (rte$type=="height+shape") {
+        if (l==0) {
+          mu_ij <- mu + beta_js[j] + theta_l*x_ij + alpha_i
+        } else {
+          mu_ij <- mu + beta_js[j] + (theta_l+eta_it[l])*x_ij + alpha_i
+        }
+      }
+
+      if (data_type=="binomial") {
         expit <- function(x) {1/(exp(-x)+1)}
-        y_ij <- expit(alpha + beta_js[j] + theta_l*x_ij + v_i)
-      } else {
-        stop ("`data_type` must be either 'normal' or 'binomial'")
+        mu_ij <- expit(mu_ij)
       }
 
       k <- n_ind_per_cluster
       if (data_type=="normal") {
-        y <- y_ij + rnorm(k, mean=0, sd=sigma)
+        y <- mu_ij + rnorm(k, mean=0, sd=sigma)
         data <- rbind(data, data.frame(cbind(
-          i=rep(i,k), j=rep(j,k), k=c(1:k), l=rep(l,k), v_i=rep(v_i,k),
-          y_ij=rep(y_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y
+          i=rep(i,k), j=rep(j,k), k=c(1:k), l=rep(l,k), # alpha_i=rep(alpha_i,k)
+          x_ij=rep(x_ij,k), c_i=rep(c_i,k), y=y # mu_ij=rep(mu_ij,k)
         )))
       } else if (data_type=="binomial") {
-        # if (y_ij>1) {
-        #   warning(paste0("Probability y_ij=",y_ij,", so y_ij was set to 1"))
-        #   y_ij <- 1
-        # }
-        y <- rbinom(n=k, size=1, prob=y_ij)
+        y <- rbinom(n=k, size=1, prob=mu_ij)
         data <- rbind(data, data.frame(cbind(
-          i=rep(i,k), j=rep(j,k), k=c(1:k), l=rep(l,k), v_i=rep(v_i,k),
-          y_ij=rep(y_ij,k), x_ij=rep(x_ij,k), c_i=c_i, y=y
+          i=rep(i,k), j=rep(j,k), k=c(1:k), l=rep(l,k), # alpha_i=rep(alpha_i,k)
+          x_ij=rep(x_ij,k), c_i=rep(c_i,k), y=y # mu_ij=rep(mu_ij,k)
         )))
       }
 

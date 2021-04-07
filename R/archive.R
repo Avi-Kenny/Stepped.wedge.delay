@@ -814,6 +814,91 @@ if (analysis$type=="ETI-MCMC") {
 
 }
 
+# 12. Lasso (not fully fleshed out)
+if (method$method=="Lasso") {
+
+  J <- L$n_time_points
+
+  # # If n_extra_time_points>0, recode l terms
+  # if (data$params$n_extra_time_points>0) {
+  #   data$data %<>% mutate(
+  #     l = ifelse(j>J, J-1, l)
+  #   )
+  # }
+
+  # # If effect_reached>0, recode l terms
+  # if (method$effect_reached>0) {
+  #   data$data %<>% mutate(
+  #     l = ifelse(l>method$effect_reached, method$effect_reached, l)
+  #   )
+  # }
+
+  data$data %<>% mutate(
+    s_1 = l,
+    s_2 = pmax(0,l-1),
+    s_3 = pmax(0,l-2),
+    s_4 = pmax(0,l-3),
+    s_5 = pmax(0,l-4),
+    s_6 = pmax(0,l-5)
+  )
+
+
+  # Run GLMM
+  if (data_type=="normal") {
+    model <- glmmLasso(
+      fix = y ~ factor(j) + s_1 + s_2 + s_3 + s_4 + s_5 + s_6,
+      rnd = list(i=~1),
+      data = data$data,
+      lambda = 1 # !!!!!
+    )
+
+
+
+
+
+  }
+  # } else if (data_type=="binomial") {
+  #   model <- glmer(
+  #     y ~ factor(j) + factor(l) + (1|i),
+  #     data = data$data,
+  #     family = "binomial"
+  #   )
+  # }
+
+  # coeff_names <- names(summary(model)$coefficients[,1])
+  # theta_l_hat <- as.numeric(summary(model)$coefficients[,1])
+  # sigma_l_hat <- vcov(model)
+  # indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
+  # coeff_names <- coeff_names[indices]
+  # theta_l_hat <- theta_l_hat[indices]
+  # # theta_l_hat # !!!!!
+  # sigma_l_hat <- sigma_l_hat[indices,indices]
+  # sigma_l_hat <- as.matrix(sigma_l_hat)
+  #
+  # return (res(theta_l_hat,sigma_l_hat,method$effect_reached))
+
+
+
+
+  # Calculate theta_l_hat vector and sigma_l_hat matrix
+  B = rbind(
+    c(1,0,0,0,0,0),
+    c(2,1,0,0,0,0),
+    c(3,2,1,0,0,0),
+    c(4,3,2,1,0,0),
+    c(5,4,3,2,1,0),
+    c(6,5,4,3,2,1)
+  )
+  theta_l_hat <- B %*% beta_s_hat
+  sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
+
+  return (res(theta_l_hat,sigma_l_hat,method$effect_reached))
+
+
+
+}
+
+
 
 
 #########################.

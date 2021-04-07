@@ -47,11 +47,13 @@ if (FALSE) {
   library(stringr)
   library(lme4)
   library(rjags)
+  library(Iso)
   # library(rstan)
   # library(INLA)
   library(sqldf)
   library(glmmTMB)
   library(mgcv)
+  library(MASS)
   library(fastDummies)
   library(scales)
   library(car)
@@ -71,20 +73,34 @@ if (FALSE) {
 
   # Generate dataset
   data <- generate_dataset(
-    n_clusters = 24,
+    n_clusters = 48,
+    # n_clusters = 24,
     n_time_points = 7,
-    n_ind_per_cluster = 5, # 50
+    n_ind_per_cluster = 10, # 50
     theta = -0.5,
-    tau = 1,
-    alpha = -2,
+    tau = 0.5, # 1
+    mu = -2,
     data_type = "normal",
-    sigma = 0.5, # 2.1
-    delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
-    n_extra_time_points = 0
+    sigma = 0.6, # 2.1
+    # delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
+    delay_model = list(type="exp", params=list(d=1.5)),
+    n_extra_time_points = 0,
+    # rte = NA
+    # rte = list(type="height", rho=-0.05, nu=0.4)
+    rte = list(type="height+shape", rho=-0.05, nu=0.4)
   )
 
   # Set number of time points
   J <- data$params$n_time_points
+
+  # # !!!!!
+  # data$data %<>% mutate(
+  #   grp = factor((i*100+l)*(as.numeric(l!=0)))
+  # )
+  # # formula <- y ~ factor(j) + factor(l) + (x_ij|i)
+  # formula <- y ~ factor(j) + factor(l) + (1|i) + (0+x_ij|grp)
+  # model <- lmer(formula, data=data$data)
+  # summary(model)
 
 }
 
@@ -107,16 +123,23 @@ if (run_main) {
       sigma = 2.1,
       data_type = "normal",
       method = list(
-        # "HH" = list(method="HH"),
         "ETI" = list(method="ETI"),
-        # "MCMC-STEP (exp; N(1,10) prior)" = list(method="MCMC-STEP-MON",
-        #                                     enforce="exp; N(1,10) prior"),
-        "MCMC-STEP (exp; mix prior 0.1)" = list(method="MCMC-STEP-MON",
-                                                enforce="exp; mix prior 0.1"),
-        "MCMC-STEP (exp; mix prior 0.2)" = list(method="MCMC-STEP-MON",
-                                                enforce="exp; mix prior 0.2"),
-        "MCMC-STEP (exp; mix prior 0.3)" = list(method="MCMC-STEP-MON",
-                                            enforce="exp; mix prior 0.3")
+        # "MCMC (exp; N(1,10) mix 0.2)" = list(
+        #   method="MCMC-STEP-MON", enforce="exp; N(1,10) mix (0.2)",
+        #   mcmc=list(n.adapt=1000, n.burn=2000, n.iter=1000, n.chains=2)
+        # ),
+        "PAVA (wts: equal)" = list(
+          method="MCMC-STEP-PAVA", wts="equal",
+          mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)
+        ),
+        "PAVA (wts: samp_size)" = list(
+          method="MCMC-STEP-PAVA", wts="samp_size",
+          mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)
+        ),
+        "PAVA (wts: sqrt_samp_size)" = list(
+          method="MCMC-STEP-PAVA", wts="sqrt_samp_size",
+          mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)
+        )
       ),
       delay_model = list(
         "Instantaneous" = list(
@@ -238,8 +261,48 @@ if (run_main) {
       n_extra_time_points = 0
     )
 
-    # # Simulation 5: !!!!!
-    # level_set_5 <- list(...)
+    # Simulation 5: random treatment effects
+    level_set_5 <- list(
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = 50,
+      theta = -0.5,
+      tau = 0.5,
+      sigma = 1.0,
+      data_type = "normal",
+      method = list(
+        "ETI" = list(method="ETI"),
+        "ETI (RTE; height)" = list(method="ETI", re="height"),
+        "ETI (RTE; height+shape)" = list(method="ETI", re="height+shape")
+      ),
+      delay_model = list(
+        "Instantaneous" = list(
+          type = "spline",
+          params = list(knots=c(0,1), slopes=1)
+        ),
+        "Lagged" = list(
+          type = "spline",
+          params = list(knots=c(0,2,3), slopes=c(0,1))
+        ),
+        "Curved" = list(
+          type = "exp",
+          params = list(d=1.5)
+        ),
+        "Partially convex" = list(
+          type = "spline",
+          params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
+        )
+      ),
+      n_extra_time_points = 0,
+      rte = list(
+        "none" = NA,
+        "height" = list(type="height", nu=0.4, rho=-0.02),
+        "height+shape" = list(type="height+shape", nu=0.4, rho=-0.02)
+      )
+    )
+
+    # # Simulation 6: !!!!!
+    # level_set_6 <- list(...)
 
   }
 }
@@ -254,7 +317,7 @@ if (run_main) {
   if (Sys.getenv("run") %in% c("first", "")) {
 
     # Set this manually
-    level_set <- level_set_1
+    level_set <- level_set_5
 
   }
 }
@@ -279,51 +342,78 @@ if (run_main) {
 
   library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
 
-  run_on_cluster(
+  run_or_update <- "run"
 
-    first = {
+  if (run_or_update=="run") {
 
-      # Set up and configure simba object
-      sim <- new_sim()
-      sim %<>% set_config(
-        num_sim = 1000, # !!!!!
-        parallel = "none",
-        stop_at_error = FALSE, # !!!!!
-        packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", # "geepack", "restriktor", "scam", "gamlss"
-                     "sqldf", "glmmTMB", "mgcv", "fastDummies", "scales", "car")
-        # packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", "rstan", # "geepack", "restriktor", "scam", "gamlss"
-        #              "sqldf", "glmmTMB", "mgcv", "fastDummies", "scales", "car")
+    run_on_cluster(
+
+      first = {
+
+        # Set up and configure simba object
+        sim <- new_sim()
+        sim %<>% set_config(
+          num_sim = 1000,
+          parallel = "outer",
+          stop_at_error = FALSE,
+          packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", "Iso",
+                       "sqldf", "glmmTMB", "mgcv", "MASS", "fastDummies",
+                       "scales", "car")
+        )
+        sim %<>% add_constants(mu = -2)
+
+        # Add functions to simba object
+        sim %<>% add_creator(generate_dataset)
+        sim %<>% set_script(one_simulation)
+        sim %<>% add_method(run_analysis)
+        sim %<>% add_method(effect_curve)
+
+        # Set levels
+        sim <- do.call(set_levels, c(list(sim), level_set))
+
+      },
+
+      main = {
+        sim %<>% run()
+      },
+
+      last = {
+        sim %>% summary() %>% print()
+        sim$errors %>% print()
+      },
+
+      cluster_config = list(
+        js = "slurm", # "sge"
+        dir = "/home/akenny/z.stepped.wedge" # "/home/students/avikenny/Desktop/z.stepped.wedge"
       )
-      sim %<>% add_constants(alpha = -2)
 
-      # Add functions to simba object
-      sim %<>% add_creator(generate_dataset)
-      sim %<>% set_script(one_simulation)
-      sim %<>% add_method(run_analysis)
-      sim %<>% add_method(effect_curve)
-
-      # Set levels
-      sim <- do.call(set_levels, c(list(sim), level_set))
-
-    },
-
-    main = {
-      sim %<>% run()
-    },
-
-    last = {
-      sim %>% summary() %>% print()
-      sim$errors %>% print()
-    },
-
-    cluster_config = list(
-      # js = "sge",
-      # dir = "/home/students/avikenny/Desktop/z.stepped.wedge"
-      js = "slurm",
-      dir = "/home/akenny/z.stepped.wedge"
     )
 
-  )
+  }
+
+  if (run_or_update=="update") {
+
+    update_on_cluster(
+
+      first = {
+        sim <- readRDS('/home/akenny/z.stepped.wedge/sim.simba')
+        sim <- do.call(set_levels, c(list(sim), level_set))
+      },
+
+      main = {
+        sim %<>% update()
+      },
+
+      last = {},
+
+      cluster_config = list(
+        js = "slurm", # "sge"
+        dir = "/home/akenny/z.stepped.wedge" # "/home/students/avikenny/Desktop/z.stepped.wedge"
+      )
+
+    )
+
+  }
 
 }
 
@@ -336,7 +426,7 @@ if (run_main) {
 if (run_process_results) {
 
   # Read in simulation object
-  sim <- readRDS("../simba.out/sim_20210131_2.simba")
+  sim <- readRDS("../simba.out/sim_20210201_2.simba")
 
   # Generate true ATE values
   sim$results %<>% mutate(
@@ -362,7 +452,7 @@ if (run_process_results) {
       list(name="mean_ate", x="ate_hat"),
       list(name="mean_lte", x="lte_hat")
     ),
-    bias = list(
+    bias_pct = list(
       list(name="bias_ate", estimate="ate_hat", truth="ate"),
       list(name="bias_lte", estimate="lte_hat", truth="theta")
     ),
@@ -370,10 +460,6 @@ if (run_process_results) {
       list(name="mse_ate", estimate="ate_hat", truth="ate"),
       list(name="mse_lte", estimate="lte_hat", truth="theta")
     ),
-    # quantile = list(
-    #   list(name="q025_ate", x="ate_hat", prob=0.025, na.rm=TRUE),
-    #   list(name="q975_ate", x="ate_hat", prob=0.975, na.rm=TRUE)
-    # ),
     coverage = list(
       list(name="cov_ate", truth="ate", estimate="ate_hat", se="se_ate_hat"),
       list(name="cov_lte", truth="theta", estimate="lte_hat", se="se_lte_hat"),
@@ -387,9 +473,7 @@ if (run_process_results) {
 
   # Transform summary data
   summ %<>% mutate(
-    # method = factor(method, levels=c("ETI","MCMC-STEP (exp; mix prior 0.1)","MCMC-STEP (exp; mix prior 0.2)","MCMC-STEP (exp; mix prior 0.3)")), # !!!!!
-    method = factor(method, levels=c("HH","ETI (effect_reached=3)","ETI (effect_reached=4)","ETI (effect_reached=0)")), # !!!!!
-    # method = factor(method, levels=c("HH","ETI","MCMC-STEP (exp; N(1,10) prior)","MCMC-STEP (exp; mix prior 0.2)")), # !!!!!
+    method = factor(method, levels=c("ETI", "ETI (RTE; height)", "ETI (RTE; height+shape)")), # !!!!!
     delay_model = factor(delay_model, levels=c("Instantaneous","Lagged",
                                                "Curved","Partially convex")),
     power_ate = 1 - beta_ate,
@@ -402,7 +486,7 @@ if (run_process_results) {
     cov_lte, power_lte, mse_lte FROM summ
   ")
   p_data <- sqldf("
-    SELECT method, delay_model, which, 'bias' AS stat, bias AS value FROM p_data
+    SELECT method, delay_model, which, 'bias (%)' AS stat, bias AS value FROM p_data
     UNION SELECT method, delay_model, which, 'coverage', coverage FROM p_data
     UNION SELECT method, delay_model, which, 'power', power FROM p_data
     UNION SELECT method, delay_model, which, 'mse', mse FROM p_data
@@ -417,6 +501,7 @@ if (run_process_results) {
     facet_grid(cols=vars(delay_model), rows=vars(stat), scales="free") +
     theme(legend.position="bottom") +
     scale_fill_manual(values=viridis(5)) +
+    labs(title="RTE (height+shape) when generating data") +
     labs(y=NULL, x=NULL)
 
 }
@@ -1051,7 +1136,7 @@ if (run_misc) {
   library(ggpubr)
 
   data <- generate_dataset(
-    alpha = log(0.1),
+    mu = log(0.1),
     tau = 1,
     theta = log(0.5),
     n_clusters = 8,
@@ -1234,10 +1319,10 @@ if (run_testing) {
     num_sim = 10,
     stop_at_error = TRUE,
     packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", # "geepack", "restriktor", "scam", "gamlss"
-                 "glmmTMB", "mgcv", "fastDummies", "scales", "car")
+                 "glmmTMB", "mgcv", "MASS", "fastDummies", "scales", "car")
   )
   sim %<>% add_constants(
-    alpha = log(0.1)
+    mu = log(0.1)
   )
 
   # Add functions to simba object

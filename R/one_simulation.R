@@ -6,7 +6,7 @@ one_simulation <- function() {
 
   # Generate dataset
   data <- generate_dataset(
-    alpha = C$alpha,
+    mu = C$mu,
     tau = L$tau,
     theta = L$theta,
     n_clusters = L$n_clusters,
@@ -15,7 +15,8 @@ one_simulation <- function() {
     data_type = L$data_type,
     sigma = L$sigma,
     delay_model = L$delay_model,
-    n_extra_time_points = L$n_extra_time_points
+    n_extra_time_points = L$n_extra_time_points,
+    rte = L$rte
   )
 
   results <- run_analysis(

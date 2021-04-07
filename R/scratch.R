@@ -1,3 +1,68 @@
+
+# Test integration to reach theta_1
+beta=0.3
+w_1=0.9
+w_2=-0.5
+integrate( function(t) { exp(beta+w_1*t) }, lower=0, upper=1)$value
+(exp(beta)/w_1) * (exp(w_1)-1)
+integrate( function(t) {
+  exp(beta + (w_2-w_1)*t + (2*w_1-1*w_2))
+}, lower=1, upper=2)$value
+(exp(beta+2*w_1-1*w_2)/(w_2-w_1)) * (exp(2*(w_2-w_1))-exp(1*(w_2-w_1)))
+
+# theta_l_2 <- theta_l_1 + (exp(ss_beta+w_1)/(w_2-w_1)) *
+#   (exp(2*(w_2-w_1))-exp(1*(w_2-w_1)))
+# theta_l_1 <-
+
+
+
+# Diagnose rejection method
+{
+  # Set up objects
+  B = rbind(c(1,0,0,0,0,0),c(1,1,0,0,0,0),c(1,1,1,0,0,0),c(1,1,1,1,0,0),c(1,1,1,1,1,0),c(1,1,1,1,1,1))
+  df <- data.frame("i"=integer(), "l"=integer(),"theta_l"=double(),"which"=character(),stringsAsFactors=FALSE)
+
+  # Unrejected
+  tol1 <- 0.1
+  tol2 <- 0.2
+  for (i in 1:(length(output[[1]][,1]))) {
+    beta_s <- as.numeric(output[[1]][i,])
+    theta_l <- round(as.numeric(B %*% beta_s),4)
+    keep1 <- as.numeric(!(max(beta_s)>tol1))
+    keep2 <- as.numeric(!(sum(pmax(beta_s,0))>tol2))
+    for (j in 1:6) {
+      df[nrow(df)+1,] <- list(i,j,theta_l[j],"all")
+      if (keep1==1) {
+        df[nrow(df)+1,] <- list(i,j,theta_l[j],"truncated 1")
+      }
+      if (keep2==1) {
+        df[nrow(df)+1,] <- list(i,j,theta_l[j],"truncated 2")
+      }
+    }
+  }
+
+  # Group averages
+  avgs <- df %>% group_by(l,which) %>% summarize(
+    theta_l = mean(theta_l)
+  )
+
+  # True values of theta_l
+  true_theta_ls <- -0.5 * effect_curve(x=c(1:6),type="exp",params=list(d=1.5))
+
+  ggplot(df, aes(x=l, y=theta_l, group=i)) +
+    facet_wrap(~which, ncol=3) +
+    geom_line(alpha=0.1) +
+    geom_line(aes(x=l,y=y), data.frame(l=c(1:6),y=true_theta_ls), color="purple", size=1) +
+    geom_line(aes(x=l,y=theta_l), avgs, color="orange", size=1)
+
+}
+
+
+
+
+
+
+
 library(dplyr)
 library(lme4)
 library(rjags)
