@@ -51,7 +51,7 @@ if (FALSE) {
   # library(rstan)
   # library(INLA)
   library(sqldf)
-  library(glmmTMB)
+  # library(glmmTMB)
   library(mgcv)
   library(MASS)
   library(fastDummies)
@@ -60,6 +60,7 @@ if (FALSE) {
   library(ggplot2)
   library(parallel)
   library(viridis)
+  library(facetscales) # devtools::install_github("zeehio/facetscales")
 
 }
 
@@ -77,11 +78,11 @@ if (FALSE) {
     # n_clusters = 24,
     n_time_points = 7,
     n_ind_per_cluster = 10, # 50
-    theta = -0.5,
+    theta = 0.5,
     tau = 0.5, # 1
-    mu = -2,
+    mu = 1,
     data_type = "normal",
-    sigma = 0.6, # 2.1
+    sigma = 2.1,
     # delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
     delay_model = list(type="exp", params=list(d=1.5)),
     n_extra_time_points = 0,
@@ -113,89 +114,70 @@ if (FALSE) {
 if (run_main) {
   if (Sys.getenv("run") %in% c("first", "")) {
 
-    # Simulation 1: compare all methods
+    delay_models <- list(
+      "Instantaneous" = list(
+        type = "spline",
+        params = list(knots=c(0,0.1), slopes=10)
+      ),
+      "Lagged" = list(
+        type = "spline",
+        params = list(knots=c(0,2,2.1), slopes=c(0,10))
+      ),
+      "Curved" = list(
+        type = "exp",
+        params = list(d=1.5)
+      ),
+      "Partially convex" = list(
+        type = "spline",
+        params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
+      )
+    )
+
+    # !!!!! Method archive
+    # "MCMC (exp; N(1,10) mix 0.2)" = list(method="MCMC-STEP-MON", enforce="exp; N(1,10) mix (0.2)",mcmc=list(n.adapt=1000, n.burn=2000, n.iter=1000, n.chains=2)),
+    # "PAVA (wts: equal)" = list(method="MCMC-STEP-PAVA", wts="equal",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)),
+    # "PAVA (wts: samp_size)" = list(method="MCMC-STEP-PAVA", wts="samp_size",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)),
+    # "PAVA (wts: sqrt_samp_size)" = list(method="MCMC-STEP-PAVA", wts="sqrt_samp_size",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2))
+    # "MCMC-STEP (exp; mix prior 0.2)" = list(method="MCMC-STEP-MON",enforce="exp; mix prior 0.2")
+
+    # Simulation 1: dangers of "immediate treatment" model
+    # 12 level combos
     level_set_1 <- list(
       n_clusters = 24,
       n_time_points = 7,
       n_ind_per_cluster = 50,
-      theta = -0.5,
+      theta = 0.5,
       tau = 1,
-      sigma = 2.1,
-      data_type = "normal",
-      method = list(
-        "ETI" = list(method="ETI"),
-        # "MCMC (exp; N(1,10) mix 0.2)" = list(
-        #   method="MCMC-STEP-MON", enforce="exp; N(1,10) mix (0.2)",
-        #   mcmc=list(n.adapt=1000, n.burn=2000, n.iter=1000, n.chains=2)
-        # ),
-        "PAVA (wts: equal)" = list(
-          method="MCMC-STEP-PAVA", wts="equal",
-          mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)
-        ),
-        "PAVA (wts: samp_size)" = list(
-          method="MCMC-STEP-PAVA", wts="samp_size",
-          mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)
-        ),
-        "PAVA (wts: sqrt_samp_size)" = list(
-          method="MCMC-STEP-PAVA", wts="sqrt_samp_size",
-          mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)
-        )
-      ),
-      delay_model = list(
-        "Instantaneous" = list(
-          type = "spline",
-          params = list(knots=c(0,1), slopes=1)
-        ),
-        "Lagged" = list(
-          type = "spline",
-          params = list(knots=c(0,2,3), slopes=c(0,1))
-        ),
-        "Curved" = list(
-          type = "exp",
-          params = list(d=1.5)
-        ),
-        "Partially convex" = list(
-          type = "spline",
-          params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
-        )
-      ),
-      n_extra_time_points = 0
-    )
-
-    # Simulation 2: compare all methods (power)
-    level_set_2 <- list(
-      n_clusters = 24,
-      n_time_points = 7,
-      n_ind_per_cluster = 50,
-      theta = seq(-0.5,0,0.1),
-      tau = 1,
-      sigma = 2.1,
+      sigma = 2,
       data_type = "normal",
       method = list(
         "HH" = list(method="HH"),
         "ETI" = list(method="ETI"),
-        "MCMC-STEP (exp; mix prior 0.2)" = list(method="MCMC-STEP-MON",
-                                                enforce="exp; mix prior 0.2")
+        "SS" = list(method="SS")
       ),
-      delay_model = list(
-        "Instantaneous" = list(
-          type = "spline",
-          params = list(knots=c(0,1), slopes=1)
-        ),
-        "Lagged" = list(
-          type = "spline",
-          params = list(knots=c(0,2,3), slopes=c(0,1))
-        ),
-        "Curved" = list(
-          type = "exp",
-          params = list(d=1.5)
-        ),
-        "Partially convex" = list(
-          type = "spline",
-          params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
-        )
+      delay_model = delay_models,
+      n_extra_time_points = 0,
+      rte = NA
+    )
+
+    # Simulation 2: power of CI-based hypothesis tests
+    # 72 level combos
+    level_set_2 <- list(
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = 50,
+      theta = seq(0,0.5,0.1),
+      tau = 1,
+      sigma = 2,
+      data_type = "normal",
+      method = list(
+        "HH" = list(method="HH"),
+        "ETI" = list(method="ETI"),
+        "SS" = list(method="SS")
       ),
-      n_extra_time_points = 0
+      delay_model = delay_models,
+      n_extra_time_points = 0,
+      rte = NA
     )
 
     # Simulation 3: n_extra_time_points
@@ -203,30 +185,14 @@ if (run_main) {
       n_clusters = 24,
       n_time_points = 7,
       n_ind_per_cluster = 50,
-      theta = -0.5,
+      theta = 0.5,
       tau = 1,
-      sigma = 2.1,
+      sigma = 2,
       data_type = "normal",
       method = list("ETI" = list(method="ETI")),
-      delay_model = list(
-        "Instantaneous" = list(
-          type = "spline",
-          params = list(knots=c(0,1), slopes=1)
-        ),
-        "Lagged" = list(
-          type = "spline",
-          params = list(knots=c(0,2,3), slopes=c(0,1))
-        ),
-        "Curved" = list(
-          type = "exp",
-          params = list(d=1.5)
-        ),
-        "Partially convex" = list(
-          type = "spline",
-          params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
-        )
-      ),
-      n_extra_time_points = c(0,1,2)
+      delay_model = delay_models,
+      n_extra_time_points = c(0,1,2),
+      rte = NA
     )
 
     # Simulation 4: effect_reached
@@ -234,9 +200,9 @@ if (run_main) {
       n_clusters = 24,
       n_time_points = 7,
       n_ind_per_cluster = 50,
-      theta = -0.5,
+      theta = 0.5,
       tau = 1,
-      sigma = 2.1,
+      sigma = 2,
       data_type = "normal",
       method = list(
         "HH" = list(method="HH"),
@@ -244,21 +210,9 @@ if (run_main) {
         "ETI (effect_reached=3)" = list(method="ETI", effect_reached=3),
         "ETI (effect_reached=4)" = list(method="ETI", effect_reached=4)
       ),
-      delay_model = list(
-        "Instantaneous" = list(
-          type = "spline",
-          params = list(knots=c(0,1), slopes=1)
-        ),
-        "Lagged" = list(
-          type = "spline",
-          params = list(knots=c(0,2,3), slopes=c(0,1))
-        ),
-        "Partially convex" = list(
-          type = "spline",
-          params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
-        )
-      ),
-      n_extra_time_points = 0
+      delay_model = delay_models,
+      n_extra_time_points = 0,
+      rte = NA
     )
 
     # Simulation 5: random treatment effects
@@ -266,33 +220,16 @@ if (run_main) {
       n_clusters = 24,
       n_time_points = 7,
       n_ind_per_cluster = 50,
-      theta = -0.5,
-      tau = 0.5,
-      sigma = 1.0,
+      theta = 0.5,
+      tau = 0.5, # Diff
+      sigma = 1, # Diff
       data_type = "normal",
       method = list(
         "ETI" = list(method="ETI"),
         "ETI (RTE; height)" = list(method="ETI", re="height"),
         "ETI (RTE; height+shape)" = list(method="ETI", re="height+shape")
       ),
-      delay_model = list(
-        "Instantaneous" = list(
-          type = "spline",
-          params = list(knots=c(0,1), slopes=1)
-        ),
-        "Lagged" = list(
-          type = "spline",
-          params = list(knots=c(0,2,3), slopes=c(0,1))
-        ),
-        "Curved" = list(
-          type = "exp",
-          params = list(d=1.5)
-        ),
-        "Partially convex" = list(
-          type = "spline",
-          params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
-        )
-      ),
+      delay_model = delay_models,
       n_extra_time_points = 0,
       rte = list(
         "none" = NA,
@@ -317,7 +254,7 @@ if (run_main) {
   if (Sys.getenv("run") %in% c("first", "")) {
 
     # Set this manually
-    level_set <- level_set_5
+    level_set <- level_set_2
 
   }
 }
@@ -354,13 +291,13 @@ if (run_main) {
         sim <- new_sim()
         sim %<>% set_config(
           num_sim = 1000,
-          parallel = "outer",
+          parallel = "none",
           stop_at_error = FALSE,
           packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", "Iso",
-                       "sqldf", "glmmTMB", "mgcv", "MASS", "fastDummies",
+                       "sqldf", "mgcv", "MASS", "fastDummies", # glmmTMB
                        "scales", "car")
         )
-        sim %<>% add_constants(mu = -2)
+        sim %<>% add_constants(mu = 1)
 
         # Add functions to simba object
         sim %<>% add_creator(generate_dataset)
@@ -419,27 +356,30 @@ if (run_main) {
 
 
 
-#####################################.
-##### MAIN: Process sim results #####
-#####################################.
+############################################.
+##### MAIN: Process simulation results #####
+############################################.
 
 if (run_process_results) {
 
-  # Read in simulation object
-  sim <- readRDS("../simba.out/sim_20210201_2.simba")
+  # Set simulation
+  whichsim <- 2
 
-  # Generate true ATE values
+  # Read in simulation object
+  sim <- readRDS("../simba.out/sim2_20210411.simba")
+
+  # Generate true TATE values
   sim$results %<>% mutate(
     ate = case_when(
       delay_model=="Instantaneous" ~ theta,
       delay_model=="Lagged" ~ theta * mean(effect_curve(
-        x=c(1:6), type="spline", params=list(knots=c(0,2,3),slopes=c(0,1))
+        x=seq(0.1,6,0.1), type="spline", params=list(knots=c(0,2,2.1),slopes=c(0,10))
       )),
       delay_model=="Curved" ~ theta * mean(effect_curve(
-        x=c(1:6), type="exp", params=list(d=1.5)
+        x=seq(0.1,6,0.1), type="exp", params=list(d=1.5)
       )),
       delay_model=="Partially convex" ~ theta * mean(effect_curve(
-        x=c(1:6), type="spline", params=list(knots=c(0,2,4),slopes=c(0.1,0.4))
+        x=seq(0.1,6,0.1), type="spline", params=list(knots=c(0,2,4),slopes=c(0.1,0.4))
       ))
     )
   )
@@ -472,37 +412,112 @@ if (run_process_results) {
   summ %<>% subset(select=-c(1:4,6:8))
 
   # Transform summary data
+  summ %<>% car::Recode("'HH'='IT';")
+  summ %<>% car::Recode("
+    'Instantaneous'='(a) Instantaneous';
+    'Lagged'='(b) Lagged';
+    'Curved'='(c) Curved';
+    'Partially convex'='(d) Partially convex';
+  ")
+
+  methods <- case_when(
+    whichsim %in% c(1,2) ~ c("IT", "ETI", "SS"),
+  )
   summ %<>% mutate(
-    method = factor(method, levels=c("ETI", "ETI (RTE; height)", "ETI (RTE; height+shape)")), # !!!!!
-    delay_model = factor(delay_model, levels=c("Instantaneous","Lagged",
-                                               "Curved","Partially convex")),
+    method = factor(method, levels=methods),
+    delay_model = factor(
+      delay_model,
+      levels = c("(a) Instantaneous","(b) Lagged",
+                 "(c) Curved", "(d) Partially convex")),
     power_ate = 1 - beta_ate,
     power_lte = 1 - beta_lte
   )
+  summ %<>% rename("Method"=method)
   p_data <- sqldf("
-    SELECT method, delay_model, 'ATE' AS which, bias_ate AS bias,
-    cov_ate AS coverage, power_ate AS power, mse_ate AS mse FROM summ
-    UNION SELECT method, delay_model, 'LTE', bias_lte,
+    SELECT Method, delay_model, 'TATE' AS which, bias_ate AS bias, theta,
+    cov_ate AS Coverage, power_ate AS Power, mse_ate AS MSE FROM summ
+    UNION SELECT Method, delay_model, 'LTE', bias_lte, theta,
     cov_lte, power_lte, mse_lte FROM summ
   ")
   p_data <- sqldf("
-    SELECT method, delay_model, which, 'bias (%)' AS stat, bias AS value FROM p_data
-    UNION SELECT method, delay_model, which, 'coverage', coverage FROM p_data
-    UNION SELECT method, delay_model, which, 'power', power FROM p_data
-    UNION SELECT method, delay_model, which, 'mse', mse FROM p_data
+    SELECT Method, delay_model, which, 'Bias' AS stat, Bias AS value, theta FROM p_data
+    UNION SELECT Method, delay_model, which, 'Coverage', Coverage, theta FROM p_data
+    UNION SELECT Method, delay_model, which, 'Power', Power, theta FROM p_data
+    UNION SELECT Method, delay_model, which, 'MSE', MSE, theta FROM p_data
   ")
+  p_data %<>% mutate(which = factor(which, levels=c("TATE", "LTE")))
 
-  # Plot results
+  cb_colors <- c("#999999", "#E69F00", "#56B4E9", "#009E73",
+                 "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+  m_colors <- c(
+    IT = cb_colors[2],
+    ETI = cb_colors[4],
+    SS = cb_colors[3]
+  )
+  # viridis(5)
+
+}
+
+
+
+########################################.
+##### VIZ: Figure for simulation 1 #####
+########################################.
+
+if (run_process_results) {
+
+  # Export: 8: x 4"
   ggplot(
-    filter(p_data, stat!="power"),
-    aes(x=which, y=value, fill=method)
+    filter(p_data, stat!="Power"),
+    aes(x=which, y=value, fill=Method)
   ) +
-    geom_bar(stat="identity", position=position_dodge(), width=0.8, color="white") +
-    facet_grid(cols=vars(delay_model), rows=vars(stat), scales="free") +
+    geom_hline(
+      aes(yintercept=y),
+      data=data.frame(y=0.95, stat="Coverage"),
+      linetype="longdash", color="grey"
+    ) +
+    geom_bar(stat="identity", position=position_dodge(),
+             width=0.8, color="white", size=0.35) +
+    facet_grid_sc(cols=vars(delay_model), rows=vars(stat), scales=list(y=list(
+      Bias = scale_y_continuous(labels = percent_format()),
+      Coverage = scale_y_continuous(labels = percent_format()),
+      MSE = scale_y_continuous()
+    ))) +
     theme(legend.position="bottom") +
-    scale_fill_manual(values=viridis(5)) +
-    labs(title="RTE (height+shape) when generating data") +
-    labs(y=NULL, x=NULL)
+    scale_fill_manual(values=m_colors) +
+    labs(y=NULL, x=NULL, fill="Analysis model")
+
+}
+
+
+
+########################################.
+##### VIZ: Figure for simulation 2 #####
+########################################.
+
+if (run_process_results) {
+
+  # Export: 8: x 4"
+  ggplot(
+    filter(p_data, stat=="Power"),
+    aes(x=theta, y=value, color=Method, shape=Method, group=Method)
+  ) +
+    geom_line() +
+    geom_point() +
+    labs(
+      x = unname(latex2exp::TeX("$\\delta$ (maximum effect size)")),
+      color = "Analysis model",
+      shape = "Analysis model",
+      y = "Power"
+    ) +
+    theme(legend.position="bottom") +
+    scale_color_manual(values=m_colors) +
+    scale_shape_manual(values=c(15,16,17)) +
+    facet_grid(rows=vars(which), cols=vars(delay_model)) +
+    scale_y_continuous(labels=percent_format()) +
+    theme(
+      axis.text.x = element_text(angle=90, hjust=0, vjust=0.4)
+    )
 
 }
 
@@ -657,40 +672,6 @@ if (run_viz) {
       legend.position = "none"
     ) +
     scale_color_manual(values = c("turquoise", "salmon", "dodgerblue2"))
-
-}
-
-
-
-######################.
-##### VIZ: Power #####
-######################.
-
-if (run_viz) {
-
-  # sim_main_1101.simba
-  # Export: 800 x 400
-  ggplot(
-    data = summ,
-    aes(
-      x = theta_log,
-      y = power,
-      color = method
-    )
-  ) +
-    geom_line(aes(group=method)) +
-    geom_point(size=0.9) +
-    labs(
-      title = "Power of CI-based hypothesis test (500 sims per level)",
-      x = "Theta",
-      color = "Analysis method",
-      y = NULL
-    ) +
-    scale_color_manual(values = c("turquoise", "salmon", "dodgerblue2")) +
-    facet_grid(rows=vars(data_type), cols=vars(delay_model)) +
-    theme(
-      axis.text.x = element_text(angle=90, hjust=0, vjust=0.4)
-    )
 
 }
 
@@ -1056,17 +1037,16 @@ if (run_misc) {
 
   # Generate data
   d1 <- effect_curve(seq(0,6,0.1), type="spline",
-                     params=list(knots=c(0,1), slopes=1))
+                     params=list(knots=c(0,0.1), slopes=10))
   d2 <- effect_curve(seq(0,6,0.1), type="spline",
-                     params=list(knots=c(0,2,3), slopes=c(0,1)))
-  d3 <- effect_curve(seq(0,6,0.1), type="exp", params=list(d=1.4))
-  d4 <- effect_curve(seq(0,6,0.1), type="non-monotonic", params=NULL)
-  # d5 <- sapply(seq(0,6,0.1), function(x) { sin(((pi*x)/12)-pi/2)+1 })
-  d5 <- effect_curve(seq(0,6,0.1), type="spline",
+                     params=list(knots=c(0,2,2.1), slopes=c(0,10)))
+  d3 <- effect_curve(seq(0,6,0.1), type="exp", params=list(d=1.5))
+  d4 <- effect_curve(seq(0,6,0.1), type="spline",
                      params=list(knots=c(0,2,4), slopes=c(0.1,0.4)))
+  d5 <- effect_curve(seq(0,6,0.1), type="non-monotonic", params=NULL)
 
   curve_labels <- c("(a) Instantaneous","(b) Lagged","(c) Curved",
-                    "(d) Non-monotonic","(e) Partially convex")
+                    "(d) Partially convex","(e) Non-monotonic")
 
   # Plot functions
   # Export: PDF 8"x3"
@@ -1318,8 +1298,8 @@ if (run_testing) {
   sim %<>% set_config(
     num_sim = 10,
     stop_at_error = TRUE,
-    packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", # "geepack", "restriktor", "scam", "gamlss"
-                 "glmmTMB", "mgcv", "MASS", "fastDummies", "scales", "car")
+    packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", # "geepack", "restriktor", "scam", "gamlss", "glmmTMB"
+                 "mgcv", "MASS", "fastDummies", "scales", "car")
   )
   sim %<>% add_constants(
     mu = log(0.1)
@@ -1336,7 +1316,7 @@ if (run_testing) {
     n_clusters = 24,
     n_time_points = 7,
     n_ind_per_cluster = 50,
-    theta = -0.5,
+    theta = 0.5,
     tau = 1,
     sigma = 2.1,
     data_type = "normal",

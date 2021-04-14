@@ -62,7 +62,7 @@ generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
   # Loop through clusters, time, and individuals
   for (i in 1:n_clusters) {
 
-    if((is.na(rte))[[1]]) {
+    if((is.na(rte)[[1]])) {
       alpha_i <- rnorm(1, mean=0, sd=tau)
       eta_i <- 0
     } else {

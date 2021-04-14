@@ -57,20 +57,28 @@ run_analysis <- function(data, data_type, method) {
     R <- effect_reached
     len <- length(theta_l_hat)
 
-    # Right-hand Riemann sum (i.e. average of theta_l_hats)
+    # # Right-hand Riemann sum (i.e. average of theta_l_hats)
+    # if (R>0 && (method$method %in% c("ETI", "SS"))) {
+    #   A <- (1/(J-1)) * matrix(c(rep(1,R-1),J-R), nrow=1)
+    # } else {
+    #   A <- (1/(J-1)) * matrix(rep(1,len), nrow=1)
+    # }
+
+    # Tradezoidal Riemann sum
     if (R>0 && (method$method %in% c("ETI", "SS"))) {
-      A <- (1/(J-1)) * matrix(c(rep(1,R-1),J-R), nrow=1)
+      # A <- (1/(J-1)) * matrix(c(rep(1,R-1),J-R), nrow=1) # !!!!!
+      stop("RETI")
     } else {
-      A <- (1/(J-1)) * matrix(rep(1,len), nrow=1)
+      A <- (1/(J-1)) * matrix(c(rep(1,len-1),0.5), nrow=1)
     }
 
     return (list(
       ate_hat = (A %*% theta_l_hat)[1,1],
       se_ate_hat = sqrt(A %*% sigma_l_hat %*% t(A))[1,1],
       lte_hat = theta_l_hat[len],
-      se_lte_hat = sqrt(sigma_l_hat[len,len]),
-      n_kept = NA,  # only relevant for "rejection" method
-      n_tossed = NA # only relevant for "rejection" method
+      se_lte_hat = sqrt(sigma_l_hat[len,len])
+      # n_kept = NA,  # only relevant for "rejection" method
+      # n_tossed = NA # only relevant for "rejection" method
     ))
 
   }
