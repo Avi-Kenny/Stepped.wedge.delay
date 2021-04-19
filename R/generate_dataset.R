@@ -14,12 +14,11 @@
 #'     to effect_curve()
 #' @param n_extra_time_points Number of extra time points at the end of the
 #'     study (all clusters are in the treatment state)
-#' @param rte Specification of random treatment effects. Either NA or a list
-#'     containing `type`, `rho`, and `nu`. `type` can be either "height"
-#'     (allowing the height of the effect curve to vary) or "height+shape"
-#'     (allowing both the height and the shape of the effect curve to vary)).
-#'     `rho` and `nu` correspond to the covariance and RTE sd; see the
-#'     manuscript for details.
+#' @param rte Specification of random treatment effects. Options include the
+#'     following (see the manuscript for details):
+#'     * NA (no random treatment effects)
+#'     * list(type="height", rho=1, nu=1);
+#'     * list(type="height+shape", rho1=1, rho2=1, nu=1)
 #' @return A list containing the following: \cr
 #'     * `params`: a list of the parameters supplied in the function call \cr
 #'     * `data`: the resulting data frame
@@ -67,9 +66,10 @@ generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
       eta_i <- 0
     } else {
       if(rte$type=="height") {
+        cov <- rte$rho * tau * rte$nu
         Sigma <- rbind(
-          c(tau^2,rte$rho),
-          c(rte$rho,rte$nu^2)
+          c(tau^2,cov),
+          c(cov,rte$nu^2)
         )
         re <- mvrnorm(n=1, mu=c(0,0), Sigma=Sigma)
         alpha_i <- re[1]
@@ -77,11 +77,13 @@ generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
       }
       if(rte$type=="height+shape") {
         J <- n_time_points
+        cov1 <- rte$rho1 * tau * rte$nu
+        cov2 <- rte$rho2 * (rte$nu)^2
         Sigma <- rbind(
-          c(tau^2,rep(rte$rho,J-1)),
+          c(tau^2,rep(cov1,J-1)),
           cbind(
-            rep(rte$rho,J-1),
-            diag(rep(rte$nu^2,J-1))
+            rep(cov1,J-1),
+            (diag(rep(rte$nu^2,J-1))+cov2)-diag(rep(cov2,J-1))
           )
         )
         re <- mvrnorm(n=1, mu=rep(0,J), Sigma=Sigma)

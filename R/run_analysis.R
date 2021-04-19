@@ -30,7 +30,7 @@
 #'     - lte_hat: LTE estimate
 #'     - se_lte_hat: Standard error of LTE estimate
 
-run_analysis <- function(data, data_type, method) {
+run_analysis <- function(data, data_type, method, return_extra) {
 
   # Globally set MCMC tuning parameters
   if_null <- function(x,y) {ifelse(!is.null(x),x,y)}
@@ -153,7 +153,19 @@ run_analysis <- function(data, data_type, method) {
     sigma_l_hat <- sigma_l_hat[indices,indices]
     sigma_l_hat <- as.matrix(sigma_l_hat)
 
-    return (res(theta_l_hat,sigma_l_hat,method$effect_reached))
+    res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
+
+    if (is.null(return_extra)) {
+      return (res)
+    } else if (return_extra$rte && method$re=="height") {
+      s <- summary(model)
+      return(c(res,list(
+        sigma_hat = s$sigma,
+        rho_hat = attr(s$varcor[[1]],"correlation")[1,2],
+        tau_hat = sqrt(s$varcor[[1]][1,1]),
+        nu_hat = sqrt(s$varcor[[1]][2,2])
+      )))
+    }
 
   }
 
@@ -459,6 +471,152 @@ run_analysis <- function(data, data_type, method) {
     sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
 
     return (res(theta_l_hat,sigma_l_hat,method$effect_reached))
+
+  }
+
+  if (method$method=="MCMC-RTE-height") {
+
+    # !!!!! Only coded for Normal data with J=7
+    # !!!!! Does not currently handle case when n_extra_time_points>0
+    # !!!!! Does not currently handle case when effect_reached>0
+
+    data_mod <- data$data
+    data_mod %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
+    data_mod %<>% mutate(
+      s_1 = as.numeric(l>=1),
+      s_2 = as.numeric(l>=2),
+      s_3 = as.numeric(l>=3),
+      s_4 = as.numeric(l>=4),
+      s_5 = as.numeric(l>=5),
+      s_6 = as.numeric(l>=6)
+    )
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] +
+            beta_j_7*j_7[n] + (beta_s_1+re[i[n],2])*s_1[n] +
+            (beta_s_2+re[i[n],2])*s_2[n] + (beta_s_3+re[i[n],2])*s_3[n] +
+            (beta_s_4+re[i[n],2])*s_4[n] + (beta_s_5+re[i[n],2])*s_5[n] +
+            (beta_s_6+re[i[n],2])*s_6[n] + re[i[n],1],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            re[n,1:2] ~ dmnorm.vcov(c(0,0),Sigma)
+          }
+          Sigma[1,1] <- tau^2
+          Sigma[1,2] <- rho*tau*nu
+          Sigma[2,1] <- rho*tau*nu
+          Sigma[2,2] <- nu^2
+          beta_s_6 ~ dnorm(0, 1.0E-4)
+          beta_s_5 ~ dnorm(0, 1.0E-4)
+          beta_s_4 ~ dnorm(0, 1.0E-4)
+          beta_s_3 ~ dnorm(0, 1.0E-4)
+          beta_s_2 ~ dnorm(0, 1.0E-4)
+          beta_s_1 ~ dnorm(0, 1.0E-4)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          rho ~ dunif(-1,1)
+          nu <- 1/sqrt(nu_prec)
+          nu_prec ~ dgamma(1.0E-3, 1.0E-3)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+    jm <- jags.model(
+      file = textConnection(jags_code),
+      data = list(
+        I = length(unique(data_mod$i)),
+        N = nrow(data_mod),
+        y = data_mod$y,
+        i = data_mod$i,
+        j_2 = data_mod$j_2,
+        j_3 = data_mod$j_3,
+        j_4 = data_mod$j_4,
+        j_5 = data_mod$j_5,
+        j_6 = data_mod$j_6,
+        j_7 = data_mod$j_7,
+        s_1 = data_mod$s_1,
+        s_2 = data_mod$s_2,
+        s_3 = data_mod$s_3,
+        s_4 = data_mod$s_4,
+        s_5 = data_mod$s_5,
+        s_6 = data_mod$s_6
+      ),
+      n.chains = mcmc$n.chains,
+      n.adapt = mcmc$n.adapt
+    )
+    update(jm, n.iter = mcmc$n.burn)
+    output <- coda.samples(
+      model = jm,
+      variable.names = c("beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4",
+                         "beta_s_5", "beta_s_6", "tau", "nu", "rho", "sigma"),
+      n.iter = mcmc$n.iter,
+      thin = mcmc$thin
+    )
+
+    n_samp <- length(output[[1]][,1])
+
+    if (return_extra$rte) {
+      rho_hat <- summary(output)$statistics["rho","Mean"]
+      tau_hat <- summary(output)$statistics["tau","Mean"]
+      nu_hat <- summary(output)$statistics["nu","Mean"]
+      sigma_hat <- summary(output)$statistics["sigma","Mean"]
+    }
+
+    # Extract beta_s means
+    beta_s_hat <- c()
+    for (i in 1:6) {
+      beta_s_hat[i] <- mean(
+        unlist(lapply(output, function(l) {
+          l[1:n_samp,paste0("beta_s_",i)]
+        })),
+        na.rm = TRUE
+      )
+    }
+
+    # Construct covariance matrix of s terms
+    sigma_s_hat <- matrix(NA, nrow=6, ncol=6)
+    for (i in 1:6) {
+      for (j in 1:6) {
+        sigma_s_hat[i,j] <- cov(
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",i)]})),
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",j)]})),
+          use = "complete.obs"
+        )
+      }
+    }
+
+    # Calculate theta_l_hat vector and sigma_l_hat matrix
+    B = rbind(
+      c(1,0,0,0,0,0),
+      c(1,1,0,0,0,0),
+      c(1,1,1,0,0,0),
+      c(1,1,1,1,0,0),
+      c(1,1,1,1,1,0),
+      c(1,1,1,1,1,1)
+    )
+    theta_l_hat <- B %*% beta_s_hat
+    sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
+
+    res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
+    if (return_extra$rte) {
+      res$sigma_hat <- 999
+      res$rho_hat <- 999
+      res$tau_hat <- 999
+      res$nu_hat <- 999
+    }
+
+    return (res)
 
   }
 

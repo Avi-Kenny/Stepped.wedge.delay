@@ -22,7 +22,8 @@ one_simulation <- function() {
   results <- run_analysis(
     data = data,
     data_type = L$data_type,
-    method = L$method
+    method = L$method,
+    return_extra = L$return_extra
   )
 
   return (results)

@@ -1,6 +1,29 @@
 # Title: "Stepped wedge lagged effect simulation"
 # Author: Avi Kenny
-# Date: 2020-10-25
+
+
+
+##################.
+##### CONFIG #####
+##################.
+
+# Set global config
+cfg <- list(
+  level_set_which = "level_set_5",
+  run_or_update = "run",
+  num_sim = 1,
+  pkgs = c("dplyr", "stringr", "lme4", "rjags", "Iso", "sqldf", "mgcv", "MASS",
+           "fastDummies", "car"), # rstan INLA glmmTMB
+  pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales"), # devtools::install_github("zeehio/facetscales")
+  parallel = "none",
+  stop_at_error = FALSE
+)
+
+# Set cluster config
+cluster_config <- list(
+  js = "slurm",
+  dir = "/home/akenny/z.monotest"
+)
 
 
 
@@ -8,22 +31,37 @@
 ##### Setup #####
 #################.
 
-# Set working directory
+# Set local vs. cluster variables
 if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
-  setwd("C:/Users/avike/OneDrive/Desktop/Avi/Biostats + Research/Research/Jim Hughes/Project - Stepped wedge lag/z.stepped.wedge/R")
+  # Local
+  setwd(paste0("C:/Users/avike/OneDrive/Desktop/Avi/Biostats + Research/Resear",
+               "ch/Jim Hughes/Project - Stepped wedge lag/z.stepped.wedge/R"))
+
+  load_pkgs_local <- TRUE
 } else {
+  # Cluster
   setwd("z.stepped.wedge/R")
+  load_pkgs_local <- FALSE
 }
 
-# Load functions
-{
-  source("generate_dataset.R")
-  source("one_simulation.R")
-  source("plot_outcome.R")
-  source("plot_sw_design.R")
-  source("run_analysis.R")
-  source("effect_curve.R")
+# Set cluster packages
+cfg$pkgs_cluster <- cfg$pkgs[!(cfg$pkgs %in% cfg$pkgs_nocluster)]
+
+# Load packages (if running locally)
+if (load_pkgs_local) {
+  for (pkg in cfg$pkgs) {
+    do.call("library", list(pkg))
+  }
 }
+
+# Load simba + functions
+library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
+source("generate_dataset.R")
+source("one_simulation.R")
+source("plot_outcome.R")
+source("plot_sw_design.R")
+source("run_analysis.R")
+source("effect_curve.R")
 
 # Set code blocks to run
 {
@@ -36,36 +74,6 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
 
 
 
-########################################.
-##### SETUP: Load packages locally #####
-########################################.
-
-if (FALSE) {
-
-  library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
-  library(dplyr)
-  library(stringr)
-  library(lme4)
-  library(rjags)
-  library(Iso)
-  # library(rstan)
-  # library(INLA)
-  library(sqldf)
-  # library(glmmTMB)
-  library(mgcv)
-  library(MASS)
-  library(fastDummies)
-  library(scales)
-  library(car)
-  library(ggplot2)
-  library(parallel)
-  library(viridis)
-  library(facetscales) # devtools::install_github("zeehio/facetscales")
-
-}
-
-
-
 ######################################################################.
 ##### TESTING: Generate dataset for testing new analysis methods #####
 ######################################################################.
@@ -74,34 +82,30 @@ if (FALSE) {
 
   # Generate dataset
   data <- generate_dataset(
-    n_clusters = 48,
-    # n_clusters = 24,
+    n_clusters = 24,
     n_time_points = 7,
     n_ind_per_cluster = 10, # 50
     theta = 0.5,
-    tau = 0.5, # 1
+    tau = 0.2, # 1
     mu = 1,
     data_type = "normal",
-    sigma = 2.1,
+    sigma = 0.1,
     # delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
     delay_model = list(type="exp", params=list(d=1.5)),
     n_extra_time_points = 0,
     # rte = NA
-    # rte = list(type="height", rho=-0.05, nu=0.4)
-    rte = list(type="height+shape", rho=-0.05, nu=0.4)
+    rte = list(type="height", rho=-0.1, nu=0.4)
+    # rte = list(type="height+shape", rho1=-0.1, rho2=0.6, nu=0.4)
   )
 
-  # Set number of time points
+  # Set variables needed in run_analysis
   J <- data$params$n_time_points
+  data_type <- "normal"
 
-  # # !!!!!
-  # data$data %<>% mutate(
-  #   grp = factor((i*100+l)*(as.numeric(l!=0)))
-  # )
-  # # formula <- y ~ factor(j) + factor(l) + (x_ij|i)
-  # formula <- y ~ factor(j) + factor(l) + (1|i) + (0+x_ij|grp)
-  # model <- lmer(formula, data=data$data)
-  # summary(model)
+  # !!!!!
+  formula <- y ~ factor(j) + factor(l) + (x_ij|i)
+  model <- lmer(formula, data=data$data)
+  summary(model)
 
 }
 
@@ -225,38 +229,31 @@ if (run_main) {
       sigma = 1, # Diff
       data_type = "normal",
       method = list(
-        "ETI" = list(method="ETI"),
+        # "ETI" = list(method="ETI"),
         "ETI (RTE; height)" = list(method="ETI", re="height"),
-        "ETI (RTE; height+shape)" = list(method="ETI", re="height+shape")
+        "ETI (RTE MCMC; height)" = list(method="MCMC-RTE-height")
+        # "ETI (RTE; height+shape)" = list(method="ETI", re="height+shape")
       ),
-      delay_model = delay_models,
+      delay_models = list(
+        "Curved" = list(type="exp", params=list(d=1.5))
+      ),
+      # delay_model = delay_models, # !!!!!
       n_extra_time_points = 0,
       rte = list(
-        "none" = NA,
-        "height" = list(type="height", nu=0.4, rho=-0.02),
-        "height+shape" = list(type="height+shape", nu=0.4, rho=-0.02)
-      )
+        # "none" = NA,
+        "height" = list(type="height", nu=0.4, rho=-0.2)
+        # "height+shape" = list(type="height+shape", nu=0.4, rho=-0.02)
+      ),
+      return_extra = list("rte"=list(rte=TRUE))
     )
 
     # # Simulation 6: !!!!!
     # level_set_6 <- list(...)
 
   }
-}
 
+  level_set <- eval(as.name(cfg$level_set_which))
 
-
-################################################.
-##### MAIN: Choose which simulation to run #####
-################################################.
-
-if (run_main) {
-  if (Sys.getenv("run") %in% c("first", "")) {
-
-    # Set this manually
-    level_set <- level_set_2
-
-  }
 }
 
 
@@ -279,9 +276,7 @@ if (run_main) {
 
   library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
 
-  run_or_update <- "run"
-
-  if (run_or_update=="run") {
+  if (cfg$run_or_update=="run") {
 
     run_on_cluster(
 
@@ -290,12 +285,10 @@ if (run_main) {
         # Set up and configure simba object
         sim <- new_sim()
         sim %<>% set_config(
-          num_sim = 1000,
-          parallel = "none",
-          stop_at_error = FALSE,
-          packages = c("dplyr", "magrittr", "stringr", "lme4", "rjags", "Iso",
-                       "sqldf", "mgcv", "MASS", "fastDummies", # glmmTMB
-                       "scales", "car")
+          num_sim = cfg$num_sim,
+          parallel = cfg$parallel,
+          stop_at_error = cfg$stop_at_error,
+          packages = cfg$pkgs_cluster
         )
         sim %<>% add_constants(mu = 1)
 
@@ -328,7 +321,7 @@ if (run_main) {
 
   }
 
-  if (run_or_update=="update") {
+  if (cfg$run_or_update=="update") {
 
     update_on_cluster(
 
