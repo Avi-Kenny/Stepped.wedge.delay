@@ -2,6 +2,14 @@
 # Author: Avi Kenny
 
 
+# install.packages(
+#   pkgs = "rjags",
+#   lib = "/home/students/avikenny/Desktop/R_lib", # UW - Bayes
+#   repos = "http://cran.us.r-project.org",
+#   dependencies = TRUE
+# )
+
+
 
 ##################.
 ##### CONFIG #####
@@ -16,7 +24,7 @@ cfg <- list(
            "fastDummies", "car"), # rstan INLA glmmTMB
   pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales"), # devtools::install_github("zeehio/facetscales")
   parallel = "none",
-  stop_at_error = FALSE
+  stop_at_error = TRUE # !!!!!
 )
 
 # Set cluster config
@@ -84,17 +92,17 @@ if (FALSE) {
   data <- generate_dataset(
     n_clusters = 24,
     n_time_points = 7,
-    n_ind_per_cluster = 10, # 50
+    n_ind_per_cluster = 20, # 50
     theta = 0.5,
-    tau = 0.2, # 1
+    tau = 0.5,
     mu = 1,
     data_type = "normal",
-    sigma = 0.1,
+    sigma = 0.3,
     # delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
     delay_model = list(type="exp", params=list(d=1.5)),
     n_extra_time_points = 0,
     # rte = NA
-    rte = list(type="height", rho=-0.1, nu=0.4)
+    rte = list(type="height", rho=-0.2, nu=0.4)
     # rte = list(type="height+shape", rho1=-0.1, rho2=0.6, nu=0.4)
   )
 
@@ -102,10 +110,10 @@ if (FALSE) {
   J <- data$params$n_time_points
   data_type <- "normal"
 
-  # !!!!!
-  formula <- y ~ factor(j) + factor(l) + (x_ij|i)
-  model <- lmer(formula, data=data$data)
-  summary(model)
+#   # !!!!!
+#   formula <- y ~ factor(j) + factor(l) + (x_ij|i)
+#   model <- lmer(formula, data=data$data)
+#   summary(model)
 
 }
 
@@ -223,26 +231,33 @@ if (run_main) {
     level_set_5 <- list(
       n_clusters = 24,
       n_time_points = 7,
-      n_ind_per_cluster = 50,
+      n_ind_per_cluster = 10, # 20
       theta = 0.5,
-      tau = 0.5, # Diff
-      sigma = 1, # Diff
+      tau = 0.5,
+      sigma = 0.2,
       data_type = "normal",
       method = list(
-        # "ETI" = list(method="ETI"),
+        "ETI" = list(method="ETI"),
         "ETI (RTE; height)" = list(method="ETI", re="height"),
-        "ETI (RTE MCMC; height)" = list(method="MCMC-RTE-height")
-        # "ETI (RTE; height+shape)" = list(method="ETI", re="height+shape")
+        # "ETI (RTE MCMC; height)"=list(method="MCMC-RTE-height",mcmc=list(n.adapt=2000, n.burn=2000)),
+        "ETI (RTE MCMC; height)" = list(
+          method = "MCMC-RTE-height+shape",
+          mcmc = list(n.adapt=1000, n.burn=1000)
+          # mcmc = list(n.adapt=2000, n.burn=2000)
+        )
       ),
-      delay_models = list(
-        "Curved" = list(type="exp", params=list(d=1.5))
+      # delay_model = delay_models,
+      delay_model = list(
+        "Curved" = list(
+          type = "exp",
+          params = list(d=1.5)
+        )
       ),
-      # delay_model = delay_models, # !!!!!
       n_extra_time_points = 0,
       rte = list(
         # "none" = NA,
-        "height" = list(type="height", nu=0.4, rho=-0.2)
-        # "height+shape" = list(type="height+shape", nu=0.4, rho=-0.02)
+        # "height" = list(type="height", nu=0.4, rho=-0.2),
+        "height+shape" = list(type="height+shape", nu=0.4, rho1=-0.2, rho2=0.5)
       ),
       return_extra = list("rte"=list(rte=TRUE))
     )
@@ -250,10 +265,9 @@ if (run_main) {
     # # Simulation 6: !!!!!
     # level_set_6 <- list(...)
 
+    level_set <- eval(as.name(cfg$level_set_which))
+
   }
-
-  level_set <- eval(as.name(cfg$level_set_which))
-
 }
 
 
@@ -304,11 +318,14 @@ if (run_main) {
       },
 
       main = {
+        print(paste("Check 1:",Sys.time())) # !!!!!
         sim %<>% run()
+        print(paste("Check 2:",Sys.time())) # !!!!!
       },
 
       last = {
         sim %>% summary() %>% print()
+        sim$results %>% print() # !!!!!
         sim$errors %>% print()
       },
 

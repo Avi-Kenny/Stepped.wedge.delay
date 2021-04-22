@@ -132,11 +132,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
       formula <- y ~ factor(j) + factor(l) + (1|i)
     } else if (method$re=="height") {
       formula <- y ~ factor(j) + factor(l) + (x_ij|i)
-    } else if (method$re=="height+shape") {
-      data$data %<>% mutate(
-        grp = factor((i*100+l)*(as.numeric(l!=0)))
-      )
-      formula <- y ~ factor(j) + factor(l) + (1|i) + (0+x_ij|grp)
     }
     if (data_type=="normal") {
       model <- lmer(formula, data=data$data)
@@ -155,13 +150,30 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
     res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
 
+    # # !!!!!
+    # print("check")
+    # print(is.null(return_extra))
+    # print(return_extra$rte)
+    # print(is.null(method$re))
+    # print(method$re)
+
     if (is.null(return_extra)) {
       return (res)
+    } else if (return_extra$rte && is.na(method$re)) {
+      s <- summary(model)
+      return(c(res,list(
+        sigma_hat = s$sigma,
+        rho1_hat = NA,
+        rho2_hat = NA,
+        tau_hat = sqrt(s$varcor[[1]][1,1]),
+        nu_hat = NA
+      )))
     } else if (return_extra$rte && method$re=="height") {
       s <- summary(model)
       return(c(res,list(
         sigma_hat = s$sigma,
-        rho_hat = attr(s$varcor[[1]],"correlation")[1,2],
+        rho1_hat = attr(s$varcor[[1]],"correlation")[1,2],
+        rho2_hat = NA,
         tau_hat = sqrt(s$varcor[[1]][1,1]),
         nu_hat = sqrt(s$varcor[[1]][2,2])
       )))
@@ -217,11 +229,12 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
   }
 
-  if (method$method=="MCMC-SPL") {
+  # Notes for all MCMC methods:
+  # !!!!! Only coded for Normal data with J=7
+  # !!!!! Does not currently handle case when n_extra_time_points>0
+  # !!!!! Does not currently handle case when effect_reached>0
 
-    # !!!!! Only coded for Normal data with J=7
-    # !!!!! Does not currently handle case when n_extra_time_points>0
-    # !!!!! Does not currently handle case when effect_reached>0
+  if (method$method=="MCMC-SPL") {
 
     data_mod <- data$data
     data_mod %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
@@ -331,10 +344,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
   }
 
   if (method$method=="MCMC-SPL-MON") {
-
-    # !!!!! Only coded for Normal data with J=7
-    # !!!!! Does not currently handle case when n_extra_time_points>0
-    # !!!!! Does not currently handle case when effect_reached>0
 
     data_mod <- data$data
     data_mod %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
@@ -476,30 +485,19 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
   if (method$method=="MCMC-RTE-height") {
 
-    # !!!!! Only coded for Normal data with J=7
-    # !!!!! Does not currently handle case when n_extra_time_points>0
-    # !!!!! Does not currently handle case when effect_reached>0
-
     data_mod <- data$data
     data_mod %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
-    data_mod %<>% mutate(
-      s_1 = as.numeric(l>=1),
-      s_2 = as.numeric(l>=2),
-      s_3 = as.numeric(l>=3),
-      s_4 = as.numeric(l>=4),
-      s_5 = as.numeric(l>=5),
-      s_6 = as.numeric(l>=6)
-    )
+    data_mod %<>% dummy_cols(select_columns="l", remove_first_dummy=TRUE)
 
     jags_code <- quote("
         model {
           for (n in 1:N) {
             y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
             beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] +
-            beta_j_7*j_7[n] + (beta_s_1+re[i[n],2])*s_1[n] +
-            (beta_s_2+re[i[n],2])*s_2[n] + (beta_s_3+re[i[n],2])*s_3[n] +
-            (beta_s_4+re[i[n],2])*s_4[n] + (beta_s_5+re[i[n],2])*s_5[n] +
-            (beta_s_6+re[i[n],2])*s_6[n] + re[i[n],1],
+            beta_j_7*j_7[n] + (beta_l_1+re[i[n],2])*l_1[n] +
+            (beta_l_2+re[i[n],2])*l_2[n] + (beta_l_3+re[i[n],2])*l_3[n] +
+            (beta_l_4+re[i[n],2])*l_4[n] + (beta_l_5+re[i[n],2])*l_5[n] +
+            (beta_l_6+re[i[n],2])*l_6[n] + re[i[n],1],
             1/(sigma^2))
           }
           for (n in 1:I) {
@@ -509,12 +507,12 @@ run_analysis <- function(data, data_type, method, return_extra) {
           Sigma[1,2] <- rho*tau*nu
           Sigma[2,1] <- rho*tau*nu
           Sigma[2,2] <- nu^2
-          beta_s_6 ~ dnorm(0, 1.0E-4)
-          beta_s_5 ~ dnorm(0, 1.0E-4)
-          beta_s_4 ~ dnorm(0, 1.0E-4)
-          beta_s_3 ~ dnorm(0, 1.0E-4)
-          beta_s_2 ~ dnorm(0, 1.0E-4)
-          beta_s_1 ~ dnorm(0, 1.0E-4)
+          beta_l_6 ~ dnorm(0, 1.0E-4)
+          beta_l_5 ~ dnorm(0, 1.0E-4)
+          beta_l_4 ~ dnorm(0, 1.0E-4)
+          beta_l_3 ~ dnorm(0, 1.0E-4)
+          beta_l_2 ~ dnorm(0, 1.0E-4)
+          beta_l_1 ~ dnorm(0, 1.0E-4)
           beta_j_7 ~ dnorm(0, 1.0E-4)
           beta_j_6 ~ dnorm(0, 1.0E-4)
           beta_j_5 ~ dnorm(0, 1.0E-4)
@@ -545,12 +543,12 @@ run_analysis <- function(data, data_type, method, return_extra) {
         j_5 = data_mod$j_5,
         j_6 = data_mod$j_6,
         j_7 = data_mod$j_7,
-        s_1 = data_mod$s_1,
-        s_2 = data_mod$s_2,
-        s_3 = data_mod$s_3,
-        s_4 = data_mod$s_4,
-        s_5 = data_mod$s_5,
-        s_6 = data_mod$s_6
+        l_1 = data_mod$l_1,
+        l_2 = data_mod$l_2,
+        l_3 = data_mod$l_3,
+        l_4 = data_mod$l_4,
+        l_5 = data_mod$l_5,
+        l_6 = data_mod$l_6
       ),
       n.chains = mcmc$n.chains,
       n.adapt = mcmc$n.adapt
@@ -558,8 +556,8 @@ run_analysis <- function(data, data_type, method, return_extra) {
     update(jm, n.iter = mcmc$n.burn)
     output <- coda.samples(
       model = jm,
-      variable.names = c("beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4",
-                         "beta_s_5", "beta_s_6", "tau", "nu", "rho", "sigma"),
+      variable.names = c("beta_l_1", "beta_l_2", "beta_l_3", "beta_l_4",
+                         "beta_l_5", "beta_l_6", "tau", "nu", "rho", "sigma"),
       n.iter = mcmc$n.iter,
       thin = mcmc$thin
     )
@@ -573,47 +571,209 @@ run_analysis <- function(data, data_type, method, return_extra) {
       sigma_hat <- summary(output)$statistics["sigma","Mean"]
     }
 
+    # !!!!! MCMC diagnostics
+    if (FALSE) {
+      var <- "nu" # rho tau nu sigma
+      c1 <- output[[1]][1:n_samp,var]
+      c2 <- output[[2]][1:n_samp,var]
+      c3 <- output[[3]][1:n_samp,var]
+      ggplot(
+        data.frame(
+          x = rep(c(1:n_samp),3),
+          y = c(c1,c2,c3),
+          chain = rep(c(1:3), each=n_samp)
+        ),
+        aes(x=x, y=y, color=factor(chain))) +
+        geom_line() +
+        labs(title=var)
+    }
+
     # Extract beta_s means
-    beta_s_hat <- c()
+    theta_l_hat <- c()
     for (i in 1:6) {
-      beta_s_hat[i] <- mean(
+      theta_l_hat[i] <- mean(
         unlist(lapply(output, function(l) {
-          l[1:n_samp,paste0("beta_s_",i)]
+          l[1:n_samp,paste0("beta_l_",i)]
         })),
         na.rm = TRUE
       )
     }
 
-    # Construct covariance matrix of s terms
-    sigma_s_hat <- matrix(NA, nrow=6, ncol=6)
+    # Construct covariance matrix of l terms
+    sigma_l_hat <- matrix(NA, nrow=6, ncol=6)
     for (i in 1:6) {
       for (j in 1:6) {
-        sigma_s_hat[i,j] <- cov(
-          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",i)]})),
-          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",j)]})),
+        sigma_l_hat[i,j] <- cov(
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_l_",i)]})),
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_l_",j)]})),
           use = "complete.obs"
         )
       }
     }
 
-    # Calculate theta_l_hat vector and sigma_l_hat matrix
-    B = rbind(
-      c(1,0,0,0,0,0),
-      c(1,1,0,0,0,0),
-      c(1,1,1,0,0,0),
-      c(1,1,1,1,0,0),
-      c(1,1,1,1,1,0),
-      c(1,1,1,1,1,1)
+    res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
+    if (return_extra$rte) {
+      res$sigma_hat <- sigma_hat
+      res$rho1_hat <- rho_hat
+      res$rho2_hat <- NA
+      res$tau_hat <- tau_hat
+      res$nu_hat <- nu_hat
+    }
+
+    return (res)
+
+  }
+
+  if (method$method=="MCMC-RTE-height+shape") {
+
+    print(paste("Check 3:",Sys.time())) # !!!!!
+
+    data_mod <- data$data
+    data_mod %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
+    data_mod %<>% dummy_cols(select_columns="l", remove_first_dummy=TRUE)
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] +
+            beta_j_7*j_7[n] + (beta_l_1+re[i[n],2])*l_1[n] +
+            (beta_l_2+re[i[n],3])*l_2[n] + (beta_l_3+re[i[n],4])*l_3[n] +
+            (beta_l_4+re[i[n],5])*l_4[n] + (beta_l_5+re[i[n],6])*l_5[n] +
+            (beta_l_6+re[i[n],7])*l_6[n] + re[i[n],1],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            re[n,1:7] ~ dmnorm.vcov(rep(0,7),Sigma)
+          }
+          Sigma[1,1] <- tau^2
+          for (i in 2:7) {
+            Sigma[1,i] <- rho1*tau*nu
+            Sigma[i,1] <- rho1*tau*nu
+            for (j in 2:7) {
+              Sigma[i,j] <- ifelse(i==j, nu^2, rho2*nu^2)
+            }
+          }
+          beta_l_6 ~ dnorm(0, 1.0E-4)
+          beta_l_5 ~ dnorm(0, 1.0E-4)
+          beta_l_4 ~ dnorm(0, 1.0E-4)
+          beta_l_3 ~ dnorm(0, 1.0E-4)
+          beta_l_2 ~ dnorm(0, 1.0E-4)
+          beta_l_1 ~ dnorm(0, 1.0E-4)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          rho1 ~ dunif(-1,1)
+          rho2 ~ dunif(-1,1)
+          nu <- 1/sqrt(nu_prec)
+          nu_prec ~ dgamma(1.0E-3, 1.0E-3)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+    print(paste("Check 4:",Sys.time())) # !!!!!
+
+    jm <- jags.model(
+      file = textConnection(jags_code),
+      data = list(
+        I = length(unique(data_mod$i)),
+        N = nrow(data_mod),
+        y = data_mod$y,
+        i = data_mod$i,
+        j_2 = data_mod$j_2,
+        j_3 = data_mod$j_3,
+        j_4 = data_mod$j_4,
+        j_5 = data_mod$j_5,
+        j_6 = data_mod$j_6,
+        j_7 = data_mod$j_7,
+        l_1 = data_mod$l_1,
+        l_2 = data_mod$l_2,
+        l_3 = data_mod$l_3,
+        l_4 = data_mod$l_4,
+        l_5 = data_mod$l_5,
+        l_6 = data_mod$l_6
+      ),
+      n.chains = mcmc$n.chains,
+      n.adapt = mcmc$n.adapt
     )
-    theta_l_hat <- B %*% beta_s_hat
-    sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
+    print(paste("Check 5:",Sys.time())) # !!!!!
+    print(mcmc) # !!!!!
+    update(jm, n.iter = mcmc$n.burn)
+    print(paste("Check 6:",Sys.time())) # !!!!!
+    output <- coda.samples(
+      model = jm,
+      variable.names = c("beta_l_1", "beta_l_2", "beta_l_3", "beta_l_4",
+                         "beta_l_5", "beta_l_6", "tau", "nu", "rho1", "rho2",
+                         "sigma"),
+      n.iter = mcmc$n.iter,
+      thin = mcmc$thin
+    )
+    print(paste("Check 7:",Sys.time())) # !!!!!
+
+    n_samp <- length(output[[1]][,1])
+
+    if (return_extra$rte) {
+      rho1_hat <- summary(output)$statistics["rho1","Mean"]
+      rho2_hat <- summary(output)$statistics["rho2","Mean"]
+      tau_hat <- summary(output)$statistics["tau","Mean"]
+      nu_hat <- summary(output)$statistics["nu","Mean"]
+      sigma_hat <- summary(output)$statistics["sigma","Mean"]
+    }
+
+    # !!!!! MCMC diagnostics
+    if (FALSE) {
+      var <- "sigma" # rho1 rho2 tau nu sigma
+      c1 <- output[[1]][1:n_samp,var]
+      c2 <- output[[2]][1:n_samp,var]
+      c3 <- output[[3]][1:n_samp,var]
+      ggplot(
+        data.frame(
+          x = rep(c(1:n_samp),3),
+          y = c(c1,c2,c3),
+          chain = rep(c(1:3), each=n_samp)
+        ),
+        aes(x=x, y=y, color=factor(chain))) +
+        geom_line() +
+        labs(title=var)
+    }
+
+    # Extract beta_s means
+    theta_l_hat <- c()
+    for (i in 1:6) {
+      theta_l_hat[i] <- mean(
+        unlist(lapply(output, function(l) {
+          l[1:n_samp,paste0("beta_l_",i)]
+        })),
+        na.rm = TRUE
+      )
+    }
+
+    # Construct covariance matrix of l terms
+    sigma_l_hat <- matrix(NA, nrow=6, ncol=6)
+    for (i in 1:6) {
+      for (j in 1:6) {
+        sigma_l_hat[i,j] <- cov(
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_l_",i)]})),
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_l_",j)]})),
+          use = "complete.obs"
+        )
+      }
+    }
 
     res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
     if (return_extra$rte) {
-      res$sigma_hat <- 999
-      res$rho_hat <- 999
-      res$tau_hat <- 999
-      res$nu_hat <- 999
+      res$sigma_hat <- sigma_hat
+      res$rho1_hat <- rho1_hat
+      res$rho2_hat <- rho2_hat
+      res$tau_hat <- tau_hat
+      res$nu_hat <- nu_hat
     }
 
     return (res)
@@ -621,10 +781,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
   }
 
   if (method$method=="MCMC-STEP-MON") {
-
-    # !!!!! Only coded for Normal data with J=7
-    # !!!!! Does not currently handle case when n_extra_time_points>0
-    # !!!!! Does not currently handle case when effect_reached>0
 
     data_mod <- data$data
     data_mod %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
@@ -1301,10 +1457,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
   if (method$method=="MCMC-STEP-PAVA") {
 
-    # !!!!! Only coded for Normal data with J=7
-    # !!!!! Does not currently handle case when n_extra_time_points>0
-    # !!!!! Does not currently handle case when effect_reached>0
-
     data_mod <- data$data
     data_mod %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
     data_mod %<>% mutate(
@@ -1446,10 +1598,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
   if (method$method=="MCMC-Shively-Sager") {
 
-    # !!!!! Only coded for Normal data with J=7
-    # !!!!! Does not currently handle case when n_extra_time_points>0
-    # !!!!! Does not currently handle case when effect_reached>0
-
     data_mod <- data$data
     data_mod %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
     data_mod %<>% dummy_cols(select_columns="l", remove_first_dummy=TRUE)
@@ -1580,136 +1728,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
         )
       }
     }
-
-    return (res(theta_l_hat,sigma_l_hat,method$effect_reached))
-
-  }
-
-  if (method$method=="MCMC-STEP-MON-STAN") {
-
-    # !!!!!
-    data_mod <- data$data
-    data_mod %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
-    data_mod %<>% mutate(
-      s_1 = as.numeric(l>=1),
-      s_2 = as.numeric(l>=2),
-      s_3 = as.numeric(l>=3),
-      s_4 = as.numeric(l>=4),
-      s_5 = as.numeric(l>=5),
-      s_6 = as.numeric(l>=6)
-    )
-
-    # options(mc.cores = parallel::detectCores()-1)
-    rstan_options(auto_write=TRUE)
-    stan_data <- list(
-      I = length(unique(data_mod$i)),
-      N = nrow(data_mod),
-      y = data_mod$y,
-      i = data_mod$i,
-      j_2 = data_mod$j_2,
-      j_3 = data_mod$j_3,
-      j_4 = data_mod$j_4,
-      j_5 = data_mod$j_5,
-      j_6 = data_mod$j_6,
-      j_7 = data_mod$j_7,
-      s_1 = data_mod$s_1,
-      s_2 = data_mod$s_2,
-      s_3 = data_mod$s_3,
-      s_4 = data_mod$s_4,
-      s_5 = data_mod$s_5,
-      s_6 = data_mod$s_6
-    )
-    stan_code <- quote("
-      data {
-        int I;
-        int N;
-        real y[N];
-        int i[N];
-        real j_2[N];
-        real j_3[N];
-        real j_4[N];
-        real j_5[N];
-        real j_6[N];
-        real j_7[N];
-        real s_1[N];
-        real s_2[N];
-        real s_3[N];
-        real s_4[N];
-        real s_5[N];
-        real s_6[N];
-      }
-      parameters {
-        real beta0;
-        real beta1;
-        real beta_j_2;
-        real beta_j_3;
-        real beta_j_4;
-        real beta_j_5;
-        real beta_j_6;
-        real beta_j_7;
-        real<upper=0> beta_s_1;
-        real<upper=0> beta_s_2;
-        real<upper=0> beta_s_3;
-        real<upper=0> beta_s_4;
-        real<upper=0> beta_s_5;
-        real<upper=0> beta_s_6;
-        real alpha[I];
-        real<lower=0> sigma;
-      }
-      model {
-        alpha ~ normal(0,100);
-        for (n in 1:N) {
-          y[n] ~ normal(
-            beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] + beta_j_4*j_4[n] +
-            beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n] +
-            beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
-            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
-            sigma
-          );
-        }
-    }")
-    fit <- stan(
-      model_code = stan_code,
-      data = stan_data,
-      chains = 1,
-      iter = 2000,
-      warmup = 1000
-    )
-    print(fit)
-
-    # !!!!! Try reproducing this using rstanarm
-    # !!!!! https://mc-stan.org/rstanarm/articles/
-
-    # Extract beta_s means
-    beta_s_hat <- c()
-    for (i in 1:6) {
-      beta_s_hat[i] <- summary(fit)$summary[paste0("beta_s_",i),"mean"]
-    }
-
-
-    # # Construct covariance matrix of s terms
-    # sigma_s_hat <- matrix(NA, nrow=6, ncol=6)
-    # n_samp <- length(output[[1]][,1])
-    # for (i in 1:6) {
-    #   for (j in 1:6) {
-    #     sigma_s_hat[i,j] <- cov(
-    #       unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",i)]})),
-    #       unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",j)]}))
-    #     )
-    #   }
-    # }
-
-    # Calculate theta_l_hat vector and sigma_l_hat matrix
-    B = rbind(
-      c(1,0,0,0,0,0),
-      c(1,1,0,0,0,0),
-      c(1,1,1,0,0,0),
-      c(1,1,1,1,0,0),
-      c(1,1,1,1,1,0),
-      c(1,1,1,1,1,1)
-    )
-    theta_l_hat <- B %*% beta_s_hat
-    sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
 
     return (res(theta_l_hat,sigma_l_hat,method$effect_reached))
 

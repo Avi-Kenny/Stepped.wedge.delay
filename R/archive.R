@@ -814,7 +814,137 @@ if (analysis$type=="ETI-MCMC") {
 
 }
 
-# 12. Lasso (not fully fleshed out)
+# 12. STAN
+if (method$method=="MCMC-STEP-MON-STAN") {
+
+  data_mod <- data$data
+  data_mod %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
+  data_mod %<>% mutate(
+    s_1 = as.numeric(l>=1),
+    s_2 = as.numeric(l>=2),
+    s_3 = as.numeric(l>=3),
+    s_4 = as.numeric(l>=4),
+    s_5 = as.numeric(l>=5),
+    s_6 = as.numeric(l>=6)
+  )
+
+  # options(mc.cores = parallel::detectCores()-1)
+  rstan_options(auto_write=TRUE)
+  stan_data <- list(
+    I = length(unique(data_mod$i)),
+    N = nrow(data_mod),
+    y = data_mod$y,
+    i = data_mod$i,
+    j_2 = data_mod$j_2,
+    j_3 = data_mod$j_3,
+    j_4 = data_mod$j_4,
+    j_5 = data_mod$j_5,
+    j_6 = data_mod$j_6,
+    j_7 = data_mod$j_7,
+    s_1 = data_mod$s_1,
+    s_2 = data_mod$s_2,
+    s_3 = data_mod$s_3,
+    s_4 = data_mod$s_4,
+    s_5 = data_mod$s_5,
+    s_6 = data_mod$s_6
+  )
+  stan_code <- quote("
+      data {
+        int I;
+        int N;
+        real y[N];
+        int i[N];
+        real j_2[N];
+        real j_3[N];
+        real j_4[N];
+        real j_5[N];
+        real j_6[N];
+        real j_7[N];
+        real s_1[N];
+        real s_2[N];
+        real s_3[N];
+        real s_4[N];
+        real s_5[N];
+        real s_6[N];
+      }
+      parameters {
+        real beta0;
+        real beta1;
+        real beta_j_2;
+        real beta_j_3;
+        real beta_j_4;
+        real beta_j_5;
+        real beta_j_6;
+        real beta_j_7;
+        real<upper=0> beta_s_1;
+        real<upper=0> beta_s_2;
+        real<upper=0> beta_s_3;
+        real<upper=0> beta_s_4;
+        real<upper=0> beta_s_5;
+        real<upper=0> beta_s_6;
+        real alpha[I];
+        real<lower=0> sigma;
+      }
+      model {
+        alpha ~ normal(0,100);
+        for (n in 1:N) {
+          y[n] ~ normal(
+            beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] + beta_j_4*j_4[n] +
+            beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n] +
+            beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            sigma
+          );
+        }
+    }")
+  fit <- stan(
+    model_code = stan_code,
+    data = stan_data,
+    chains = 1,
+    iter = 2000,
+    warmup = 1000
+  )
+  print(fit)
+
+  # !!!!! Try reproducing this using rstanarm
+  # !!!!! https://mc-stan.org/rstanarm/articles/
+
+  # Extract beta_s means
+  beta_s_hat <- c()
+  for (i in 1:6) {
+    beta_s_hat[i] <- summary(fit)$summary[paste0("beta_s_",i),"mean"]
+  }
+
+
+  # # Construct covariance matrix of s terms
+  # sigma_s_hat <- matrix(NA, nrow=6, ncol=6)
+  # n_samp <- length(output[[1]][,1])
+  # for (i in 1:6) {
+  #   for (j in 1:6) {
+  #     sigma_s_hat[i,j] <- cov(
+  #       unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",i)]})),
+  #       unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",j)]}))
+  #     )
+  #   }
+  # }
+
+  # Calculate theta_l_hat vector and sigma_l_hat matrix
+  B = rbind(
+    c(1,0,0,0,0,0),
+    c(1,1,0,0,0,0),
+    c(1,1,1,0,0,0),
+    c(1,1,1,1,0,0),
+    c(1,1,1,1,1,0),
+    c(1,1,1,1,1,1)
+  )
+  theta_l_hat <- B %*% beta_s_hat
+  sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
+
+  return (res(theta_l_hat,sigma_l_hat,method$effect_reached))
+
+}
+
+# 13. Lasso (not fully fleshed out)
 if (method$method=="Lasso") {
 
   J <- L$n_time_points

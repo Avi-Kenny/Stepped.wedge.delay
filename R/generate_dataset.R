@@ -88,7 +88,7 @@ generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
         )
         re <- mvrnorm(n=1, mu=rep(0,J), Sigma=Sigma)
         alpha_i <- re[1]
-        eta_it <- re[2:(J-1)]
+        eta_it <- re[2:J]
       }
     }
 
