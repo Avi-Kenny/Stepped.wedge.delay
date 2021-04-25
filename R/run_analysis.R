@@ -24,6 +24,10 @@
 #'     effect
 #'     The `re` argument is only used for "ETI" and "SS". It can be set to
 #'     "height" or "height+shape".
+#' @param return_extra An empty list, or a list of the form
+#'     list(rte=TRUE, whole_curve=TRUE). Include rte=TRUE to return estimates of
+#'     random effect parameters. Include whole_curve=TRUE to return estimates of
+#'     the entire effect curve
 #' @return A list of key-value pairs, containing the following:
 #'     - ate_hat: ATE estimate
 #'     - se_ate_hat: Standard error of ATE estimate
@@ -57,19 +61,30 @@ run_analysis <- function(data, data_type, method, return_extra) {
     R <- effect_reached
     len <- length(theta_l_hat)
 
-    # # Right-hand Riemann sum (i.e. average of theta_l_hats)
-    # if (R>0 && (method$method %in% c("ETI", "SS"))) {
-    #   A <- (1/(J-1)) * matrix(c(rep(1,R-1),J-R), nrow=1)
-    # } else {
-    #   A <- (1/(J-1)) * matrix(rep(1,len), nrow=1)
+    if (R>0 && method$method!="ETI") {
+      stop("Error: R>0 && method$method!='ETI'")
+    }
+
+    # # Tradezoidal Riemann sum
+    # if (R>0) {
+    #   # Hard-coded for J=7
+    #   a <- rep(0,R)
+    #   for (r in c(1:R)) {
+    #     a[r-1] <- a[r-1] + 0.5
+    #     a[r] <- a[r] + 0.5
+    #   }
+    #   a[R] <- a[R] + (6-R)
+    #   a <- (1/6)*a
+    #   A <- t(as.matrix(a))
+    # } else if (R==0) {
+    #   A <- (1/(J-1)) * matrix(c(rep(1,len-1),0.5), nrow=1)
     # }
 
-    # Tradezoidal Riemann sum
-    if (R>0 && (method$method %in% c("ETI", "SS"))) {
-      # A <- (1/(J-1)) * matrix(c(rep(1,R-1),J-R), nrow=1) # !!!!!
-      stop("RETI")
-    } else {
-      A <- (1/(J-1)) * matrix(c(rep(1,len-1),0.5), nrow=1)
+    # Right-hand Riemann sum
+    if (R>0) {
+      A <- (1/(J-1)) * matrix(c(rep(1,R-1),J-R))
+    } else if (R==0) {
+      A <- (1/(J-1)) * matrix(rep(1,len), nrow=1)
     }
 
     return (list(
@@ -150,32 +165,42 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
     res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
 
-    # # !!!!!
-    # print("check")
-    # print(is.null(return_extra))
-    # print(return_extra$rte)
-    # print(is.null(method$re))
-    # print(method$re)
-
-    if (is.null(return_extra)) {
+    if (is.null(return_extra$rte) && is.null(return_extra$whole_curve)) {
       return (res)
-    } else if (return_extra$rte && is.na(method$re)) {
-      s <- summary(model)
+    }
+
+    if (!is.null(return_extra$rte)) {
+
+      if (is.na(method$re)) {
+        s <- summary(model)
+        return(c(res,list(
+          sigma_hat = s$sigma,
+          rho1_hat = NA,
+          rho2_hat = NA,
+          tau_hat = sqrt(s$varcor[[1]][1,1]),
+          nu_hat = NA
+        )))
+      } else if (method$re=="height") {
+        s <- summary(model)
+        return(c(res,list(
+          sigma_hat = s$sigma,
+          rho1_hat = attr(s$varcor[[1]],"correlation")[1,2],
+          rho2_hat = NA,
+          tau_hat = sqrt(s$varcor[[1]][1,1]),
+          nu_hat = sqrt(s$varcor[[1]][2,2])
+        )))
+      }
+
+    }
+
+    if (!is.null(return_extra$whole_curve)) {
       return(c(res,list(
-        sigma_hat = s$sigma,
-        rho1_hat = NA,
-        rho2_hat = NA,
-        tau_hat = sqrt(s$varcor[[1]][1,1]),
-        nu_hat = NA
-      )))
-    } else if (return_extra$rte && method$re=="height") {
-      s <- summary(model)
-      return(c(res,list(
-        sigma_hat = s$sigma,
-        rho1_hat = attr(s$varcor[[1]],"correlation")[1,2],
-        rho2_hat = NA,
-        tau_hat = sqrt(s$varcor[[1]][1,1]),
-        nu_hat = sqrt(s$varcor[[1]][2,2])
+        theta_1_hat = theta_l_hat[1],
+        theta_2_hat = theta_l_hat[2],
+        theta_3_hat = theta_l_hat[3],
+        theta_4_hat = theta_l_hat[4],
+        theta_5_hat = theta_l_hat[5],
+        theta_6_hat = theta_l_hat[6]
       )))
     }
 
@@ -225,7 +250,20 @@ run_analysis <- function(data, data_type, method, return_extra) {
     coeff_names <- coeff_names[indices]
     sigma_l_hat <- sigma_l_hat[indices,indices]
 
-    return (res(theta_l_hat,sigma_l_hat,method$effect_reached))
+    res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
+
+    if (is.null(return_extra$whole_curve)) {
+      return (res)
+    } else if (return_extra$whole_curve) {
+      return(c(res,list(
+        theta_1_hat = theta_l_hat[1],
+        theta_2_hat = theta_l_hat[2],
+        theta_3_hat = theta_l_hat[3],
+        theta_4_hat = theta_l_hat[4],
+        theta_5_hat = theta_l_hat[5],
+        theta_6_hat = theta_l_hat[6]
+      )))
+    }
 
   }
 
@@ -704,7 +742,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
       n.adapt = mcmc$n.adapt
     )
     print(paste("Check 5:",Sys.time())) # !!!!!
-    print(mcmc) # !!!!!
     update(jm, n.iter = mcmc$n.burn)
     print(paste("Check 6:",Sys.time())) # !!!!!
     output <- coda.samples(
@@ -715,7 +752,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
       n.iter = mcmc$n.iter,
       thin = mcmc$thin
     )
-    print(paste("Check 7:",Sys.time())) # !!!!!
 
     n_samp <- length(output[[1]][,1])
 
@@ -921,12 +957,12 @@ run_analysis <- function(data, data_type, method, return_extra) {
           for (n in 1:I) {
             alpha[n] ~ dnorm(0, 1/(tau^2))
           }
-          beta_s_6 <- - exp(alpha_s_6)
-          beta_s_5 <- - exp(alpha_s_5)
-          beta_s_4 <- - exp(alpha_s_4)
-          beta_s_3 <- - exp(alpha_s_3)
-          beta_s_2 <- - exp(alpha_s_2)
-          beta_s_1 <- - exp(alpha_s_1)
+          beta_s_6 <- exp(alpha_s_6)
+          beta_s_5 <- exp(alpha_s_5)
+          beta_s_4 <- exp(alpha_s_4)
+          beta_s_3 <- exp(alpha_s_3)
+          beta_s_2 <- exp(alpha_s_2)
+          beta_s_1 <- exp(alpha_s_1)
           alpha_s_6 <- log(10) - e_s_6
           alpha_s_5 <- log(10) - e_s_5
           alpha_s_4 <- log(10) - e_s_4
@@ -1023,12 +1059,12 @@ run_analysis <- function(data, data_type, method, return_extra) {
           for (n in 1:I) {
             alpha[n] ~ dnorm(0, 1/(tau^2))
           }
-          beta_s_6 <- ifelse(bern_6, 0, -exp(alpha_s_6))
-          beta_s_5 <- ifelse(bern_5, 0, -exp(alpha_s_5))
-          beta_s_4 <- ifelse(bern_4, 0, -exp(alpha_s_4))
-          beta_s_3 <- ifelse(bern_3, 0, -exp(alpha_s_3))
-          beta_s_2 <- ifelse(bern_2, 0, -exp(alpha_s_2))
-          beta_s_1 <- ifelse(bern_1, 0, -exp(alpha_s_1))
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
           alpha_s_6 <- log(10) - e_s_6
           alpha_s_5 <- log(10) - e_s_5
           alpha_s_4 <- log(10) - e_s_4
@@ -1077,12 +1113,12 @@ run_analysis <- function(data, data_type, method, return_extra) {
           for (n in 1:I) {
             alpha[n] ~ dnorm(0, 1/(tau^2))
           }
-          beta_s_6 <- ifelse(bern_6, 0, -exp(alpha_s_6))
-          beta_s_5 <- ifelse(bern_5, 0, -exp(alpha_s_5))
-          beta_s_4 <- ifelse(bern_4, 0, -exp(alpha_s_4))
-          beta_s_3 <- ifelse(bern_3, 0, -exp(alpha_s_3))
-          beta_s_2 <- ifelse(bern_2, 0, -exp(alpha_s_2))
-          beta_s_1 <- ifelse(bern_1, 0, -exp(alpha_s_1))
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
           alpha_s_6 <- log(10) - e_s_6
           alpha_s_5 <- log(10) - e_s_5
           alpha_s_4 <- log(10) - e_s_4
@@ -1095,60 +1131,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
           bern_3 ~ dbern(0.2)
           bern_2 ~ dbern(0.2)
           bern_1 ~ dbern(0.2)
-          e_s_6 ~ dexp(1)
-          e_s_5 ~ dexp(1)
-          e_s_4 ~ dexp(1)
-          e_s_3 ~ dexp(1)
-          e_s_2 ~ dexp(1)
-          e_s_1 ~ dexp(1)
-          beta_j_7 ~ dnorm(0, 1.0E-4)
-          beta_j_6 ~ dnorm(0, 1.0E-4)
-          beta_j_5 ~ dnorm(0, 1.0E-4)
-          beta_j_4 ~ dnorm(0, 1.0E-4)
-          beta_j_3 ~ dnorm(0, 1.0E-4)
-          beta_j_2 ~ dnorm(0, 1.0E-4)
-          beta0 ~ dnorm(0, 1.0E-4)
-          tau <- 1/sqrt(tau_prec)
-          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
-          sigma <- 1/sqrt(sigma_prec)
-          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
-        }
-      ")
-
-    }
-
-    if (method$enforce=="exp; mix prior 0.4") {
-
-      jags_code <- quote("
-        model {
-          for (n in 1:N) {
-            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
-            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
-            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
-            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
-            1/(sigma^2))
-          }
-          for (n in 1:I) {
-            alpha[n] ~ dnorm(0, 1/(tau^2))
-          }
-          beta_s_6 <- ifelse(bern_6, 0, -exp(alpha_s_6))
-          beta_s_5 <- ifelse(bern_5, 0, -exp(alpha_s_5))
-          beta_s_4 <- ifelse(bern_4, 0, -exp(alpha_s_4))
-          beta_s_3 <- ifelse(bern_3, 0, -exp(alpha_s_3))
-          beta_s_2 <- ifelse(bern_2, 0, -exp(alpha_s_2))
-          beta_s_1 <- ifelse(bern_1, 0, -exp(alpha_s_1))
-          alpha_s_6 <- log(10) - e_s_6
-          alpha_s_5 <- log(10) - e_s_5
-          alpha_s_4 <- log(10) - e_s_4
-          alpha_s_3 <- log(10) - e_s_3
-          alpha_s_2 <- log(10) - e_s_2
-          alpha_s_1 <- log(10) - e_s_1
-          bern_6 ~ dbern(0.4)
-          bern_5 ~ dbern(0.4)
-          bern_4 ~ dbern(0.4)
-          bern_3 ~ dbern(0.4)
-          bern_2 ~ dbern(0.4)
-          bern_1 ~ dbern(0.4)
           e_s_6 ~ dexp(1)
           e_s_5 ~ dexp(1)
           e_s_4 ~ dexp(1)
@@ -1451,7 +1433,18 @@ run_analysis <- function(data, data_type, method, return_extra) {
       res$n_tossed <- n_tossed
     }
 
-    return (res)
+    if (is.null(return_extra$whole_curve)) {
+      return (res)
+    } else if (return_extra$whole_curve) {
+      return(c(res,list(
+        theta_1_hat = theta_l_hat[1],
+        theta_2_hat = theta_l_hat[2],
+        theta_3_hat = theta_l_hat[3],
+        theta_4_hat = theta_l_hat[4],
+        theta_5_hat = theta_l_hat[5],
+        theta_6_hat = theta_l_hat[6]
+      )))
+    }
 
   }
 

@@ -2,8 +2,9 @@
 # Author: Avi Kenny
 
 
+
 # install.packages(
-#   pkgs = "rjags",
+#   pkgs = "fastDummies",
 #   lib = "/home/students/avikenny/Desktop/R_lib", # UW - Bayes
 #   repos = "http://cran.us.r-project.org",
 #   dependencies = TRUE
@@ -17,20 +18,22 @@
 
 # Set global config
 cfg <- list(
-  level_set_which = "level_set_5",
+  level_set_which = "level_set_1",
   run_or_update = "run",
-  num_sim = 1,
+  num_sim = 1000,
   pkgs = c("dplyr", "stringr", "lme4", "rjags", "Iso", "sqldf", "mgcv", "MASS",
-           "fastDummies", "car"), # rstan INLA glmmTMB
+           "fastDummies", "car"),
   pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales"), # devtools::install_github("zeehio/facetscales")
   parallel = "none",
-  stop_at_error = TRUE # !!!!!
+  stop_at_error = FALSE
 )
 
 # Set cluster config
 cluster_config <- list(
+  # js = "sge",
+  # dir = "/home/students/avikenny/Desktop/z.stepped.wedge"
   js = "slurm",
-  dir = "/home/akenny/z.monotest"
+  dir = "/home/akenny/z.stepped.wedge"
 )
 
 
@@ -44,7 +47,6 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
   # Local
   setwd(paste0("C:/Users/avike/OneDrive/Desktop/Avi/Biostats + Research/Resear",
                "ch/Jim Hughes/Project - Stepped wedge lag/z.stepped.wedge/R"))
-
   load_pkgs_local <- TRUE
 } else {
   # Cluster
@@ -52,12 +54,9 @@ if (Sys.getenv("USERDOMAIN")=="AVI-KENNY-T460") {
   load_pkgs_local <- FALSE
 }
 
-# Set cluster packages
-cfg$pkgs_cluster <- cfg$pkgs[!(cfg$pkgs %in% cfg$pkgs_nocluster)]
-
 # Load packages (if running locally)
 if (load_pkgs_local) {
-  for (pkg in cfg$pkgs) {
+  for (pkg in c(cfg$pkgs,cfg$pkgs_nocluster)) {
     do.call("library", list(pkg))
   }
 }
@@ -76,6 +75,7 @@ source("effect_curve.R")
   run_main <- TRUE
   run_process_results <- FALSE
   run_viz <- FALSE
+  run_realdata <- FALSE
   run_misc <- FALSE
   run_testing <- FALSE
 }
@@ -169,7 +169,8 @@ if (run_main) {
       ),
       delay_model = delay_models,
       n_extra_time_points = 0,
-      rte = NA
+      rte = NA,
+      return_extra = list("none"=list())
     )
 
     # Simulation 2: power of CI-based hypothesis tests
@@ -189,11 +190,34 @@ if (run_main) {
       ),
       delay_model = delay_models,
       n_extra_time_points = 0,
-      rte = NA
+      rte = NA,
+      return_extra = list("none"=list())
     )
 
-    # Simulation 3: n_extra_time_points
+    # Simulation 3: effect_reached
+    # 12 level combos
     level_set_3 <- list(
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = 50,
+      theta = 0.5,
+      tau = 1,
+      sigma = 2,
+      data_type = "normal",
+      method = list(
+        "ETI" = list(method="ETI", effect_reached=0),
+        "RETI (3 steps)" = list(method="ETI", effect_reached=3),
+        "RETI (4 steps)" = list(method="ETI", effect_reached=4)
+      ),
+      delay_model = delay_models,
+      n_extra_time_points = 0,
+      rte = NA,
+      return_extra = list("none"=list())
+    )
+
+    # Simulation 4: n_extra_time_points
+    # 12 level combos
+    level_set_4 <- list(
       n_clusters = 24,
       n_time_points = 7,
       n_ind_per_cluster = 50,
@@ -204,55 +228,31 @@ if (run_main) {
       method = list("ETI" = list(method="ETI")),
       delay_model = delay_models,
       n_extra_time_points = c(0,1,2),
-      rte = NA
-    )
-
-    # Simulation 4: effect_reached
-    level_set_4 <- list(
-      n_clusters = 24,
-      n_time_points = 7,
-      n_ind_per_cluster = 50,
-      theta = 0.5,
-      tau = 1,
-      sigma = 2,
-      data_type = "normal",
-      method = list(
-        "HH" = list(method="HH"),
-        "ETI (effect_reached=0)" = list(method="ETI", effect_reached=0),
-        "ETI (effect_reached=3)" = list(method="ETI", effect_reached=3),
-        "ETI (effect_reached=4)" = list(method="ETI", effect_reached=4)
-      ),
-      delay_model = delay_models,
-      n_extra_time_points = 0,
-      rte = NA
+      rte = NA,
+      return_extra = list("none"=list())
     )
 
     # Simulation 5: random treatment effects
     level_set_5 <- list(
       n_clusters = 24,
       n_time_points = 7,
-      n_ind_per_cluster = 10, # 20
+      n_ind_per_cluster = 20,
       theta = 0.5,
       tau = 0.5,
       sigma = 0.2,
       data_type = "normal",
       method = list(
         "ETI" = list(method="ETI"),
-        "ETI (RTE; height)" = list(method="ETI", re="height"),
-        # "ETI (RTE MCMC; height)"=list(method="MCMC-RTE-height",mcmc=list(n.adapt=2000, n.burn=2000)),
-        "ETI (RTE MCMC; height)" = list(
+        # "ETI (RTE; height)" = list(method="ETI", re="height"),
+        "ETI (RTE MCMC; height)"=list(
+          method = "MCMC-RTE-height",
+          mcmc = list(n.adapt=1000, n.burn=1000)),
+        "ETI (RTE MCMC; height+shape)" = list(
           method = "MCMC-RTE-height+shape",
-          mcmc = list(n.adapt=1000, n.burn=1000)
-          # mcmc = list(n.adapt=2000, n.burn=2000)
-        )
+          mcmc = list(n.adapt=1000, n.burn=1000)) # 2000,2000
       ),
-      # delay_model = delay_models,
-      delay_model = list(
-        "Curved" = list(
-          type = "exp",
-          params = list(d=1.5)
-        )
-      ),
+      delay_model = delay_models,
+      # delay_model = list("Curved"=list(type="exp",params=list(d=1.5))),
       n_extra_time_points = 0,
       rte = list(
         # "none" = NA,
@@ -262,8 +262,34 @@ if (run_main) {
       return_extra = list("rte"=list(rte=TRUE))
     )
 
-    # # Simulation 6: !!!!!
-    # level_set_6 <- list(...)
+    # Simulation 6: Monotone Effect Curve (MEC) model
+    # 12 level combos
+    level_set_6 <- list(
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = 20, # !!!!! 50
+      theta = 0.5,
+      tau = 1,
+      sigma = 0.2, # !!!!! 2
+      data_type = "normal",
+      method = list(
+        "ETI" = list(method="ETI"),
+        "SS" = list(method="SS"),
+        "MEC (0.1 mix)" = list(
+          method="MCMC-STEP-MON", enforce="exp; mix prior 0.1",
+          mcmc=list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3)),
+        "MEC (0.2 mix)" = list(
+          method="MCMC-STEP-MON", enforce="exp; mix prior 0.2",
+          mcmc=list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3))
+      ),
+      delay_model = delay_models,
+      n_extra_time_points = 0,
+      rte = NA,
+      return_extra = list("whole_curve"=list(whole_curve=TRUE))
+    )
+
+    # # Simulation 7: !!!!!
+    # level_set_7 <- list(...)
 
     level_set <- eval(as.name(cfg$level_set_which))
 
@@ -302,7 +328,7 @@ if (run_main) {
           num_sim = cfg$num_sim,
           parallel = cfg$parallel,
           stop_at_error = cfg$stop_at_error,
-          packages = cfg$pkgs_cluster
+          packages = cfg$pkgs
         )
         sim %<>% add_constants(mu = 1)
 
@@ -318,21 +344,18 @@ if (run_main) {
       },
 
       main = {
-        print(paste("Check 1:",Sys.time())) # !!!!!
+        # print(paste("Check 1:",Sys.time())) # !!!!!
         sim %<>% run()
-        print(paste("Check 2:",Sys.time())) # !!!!!
+        # print(paste("Check 2:",Sys.time())) # !!!!!
       },
 
       last = {
         sim %>% summary() %>% print()
-        sim$results %>% print() # !!!!!
+        # sim$results %>% print()
         sim$errors %>% print()
       },
 
-      cluster_config = list(
-        js = "slurm", # "sge"
-        dir = "/home/akenny/z.stepped.wedge" # "/home/students/avikenny/Desktop/z.stepped.wedge"
-      )
+      cluster_config = cluster_config
 
     )
 
@@ -343,7 +366,7 @@ if (run_main) {
     update_on_cluster(
 
       first = {
-        sim <- readRDS('/home/akenny/z.stepped.wedge/sim.simba')
+        sim <- readRDS(paste0(cluster_config$dir,'/sim.simba'))
         sim <- do.call(set_levels, c(list(sim), level_set))
       },
 
@@ -353,10 +376,7 @@ if (run_main) {
 
       last = {},
 
-      cluster_config = list(
-        js = "slurm", # "sge"
-        dir = "/home/akenny/z.stepped.wedge" # "/home/students/avikenny/Desktop/z.stepped.wedge"
-      )
+      cluster_config = cluster_config
 
     )
 
@@ -373,35 +393,82 @@ if (run_main) {
 if (run_process_results) {
 
   # Set simulation
-  whichsim <- 2
+  whichsim <- 3
 
   # Read in simulation object
-  sim <- readRDS("../simba.out/sim2_20210411.simba")
+  sim <- readRDS("../simba.out/sim3(trap)_20210424.simba")
 
   # Generate true TATE values
   sim$results %<>% mutate(
     ate = case_when(
       delay_model=="Instantaneous" ~ theta,
-      delay_model=="Lagged" ~ theta * mean(effect_curve(
-        x=seq(0.1,6,0.1), type="spline", params=list(knots=c(0,2,2.1),slopes=c(0,10))
-      )),
-      delay_model=="Curved" ~ theta * mean(effect_curve(
-        x=seq(0.1,6,0.1), type="exp", params=list(d=1.5)
-      )),
-      delay_model=="Partially convex" ~ theta * mean(effect_curve(
-        x=seq(0.1,6,0.1), type="spline", params=list(knots=c(0,2,4),slopes=c(0.1,0.4))
-      ))
+      delay_model=="Lagged" ~ theta * mean(
+        effect_curve(x = seq(0.1,6,0.1),
+                     type = "spline",
+                     params = list(knots=c(0,2,2.1),slopes=c(0,10)))),
+      delay_model=="Curved" ~ theta * mean(
+        effect_curve(x = seq(0.1,6,0.1),
+                     type = "exp",
+                     params = list(d=1.5))),
+      delay_model=="Partially convex" ~ theta * mean(
+        effect_curve(x = seq(0.1,6,0.1),
+                     type = "spline",
+                     params = list(knots=c(0,2,4),slopes=c(0.1,0.4))))
     )
   )
+
+  # Generate true theta values
+  if (whichsim==6) {
+    theta <- sim$results[1,"theta"]
+    thetas <- list(
+      "I" = rep(theta,6),
+      "L" = theta * effect_curve(x = seq(1,6,1),
+                                 type = "spline",
+                                 params = list(knots=c(0,2,2.1),slopes=c(0,10))),
+      "C" = theta * effect_curve(x = seq(1,6,1),
+                                 type = "exp",
+                                 params = list(d=1.5)),
+      "P" = theta * effect_curve(x = seq(1,6,1),
+                                 type = "spline",
+                                 params = list(knots=c(0,2,4),slopes=c(0.1,0.4)))
+    )
+    thetas_df <- data.frame(
+      delay_model = c("Instantaneous", "Lagged", "Curved", "Partially convex"),
+      theta_1 = c(thetas$I[1],thetas$L[1],thetas$C[1],thetas$P[1]),
+      theta_2 = c(thetas$I[2],thetas$L[2],thetas$C[2],thetas$P[2]),
+      theta_3 = c(thetas$I[3],thetas$L[3],thetas$C[3],thetas$P[3]),
+      theta_4 = c(thetas$I[4],thetas$L[4],thetas$C[4],thetas$P[4]),
+      theta_5 = c(thetas$I[5],thetas$L[5],thetas$C[5],thetas$P[5]),
+      theta_6 = c(thetas$I[6],thetas$L[6],thetas$C[6],thetas$P[6])
+    )
+    sim$results %<>% inner_join(thetas_df, by="delay_model")
+    sim$results %<>% mutate(
+      mse_wc = (1/6) * (
+        (theta_1_hat-theta_1)^2+(theta_2_hat-theta_2)^2+(theta_3_hat-theta_3)^2+
+          (theta_4_hat-theta_4)^2+(theta_5_hat-theta_5)^2+(theta_6_hat-theta_6)^2
+      )
+      # pbias_wc = (1/6) * ((theta_1_hat-theta_1)/theta_1+(theta_2_hat-theta_2)/theta_2+(theta_3_hat-theta_3)/theta_3+(theta_4_hat-theta_4)/theta_4+(theta_5_hat-theta_5)/theta_5+(theta_6_hat-theta_6)/theta_6)
+    )
+
+    summ_mean <- list(
+      list(name="ate", x="ate"),
+      list(name="mean_ate", x="ate_hat"),
+      list(name="mse_wc", x="mse_wc"),
+      list(name="mean_lte", x="lte_hat")
+    )
+
+  } else {
+    summ_mean <- list(
+      list(name="ate", x="ate"),
+      list(name="mean_ate", x="ate_hat"),
+      list(name="mean_lte", x="lte_hat")
+    )
+  }
 
   # Summarize data
   summ <- summary(
     sim_obj = sim,
-    mean = list(
-      list(name="ate", x="ate"),
-      list(name="mean_ate", x="ate_hat"),
-      list(name="mean_lte", x="lte_hat")
-    ),
+    mean = summ_mean,
     bias_pct = list(
       list(name="bias_ate", estimate="ate_hat", truth="ate"),
       list(name="bias_lte", estimate="lte_hat", truth="theta")
@@ -422,23 +489,35 @@ if (run_process_results) {
   summ %<>% subset(select=-c(1:4,6:8))
 
   # Transform summary data
-  summ %<>% car::Recode("'HH'='IT';")
-  summ %<>% car::Recode("
-    'Instantaneous'='(a) Instantaneous';
-    'Lagged'='(b) Lagged';
-    'Curved'='(c) Curved';
-    'Partially convex'='(d) Partially convex';
-  ")
-
-  methods <- case_when(
-    whichsim %in% c(1,2) ~ c("IT", "ETI", "SS"),
-  )
+  if (whichsim %in% c(1,2)) {
+    summ %<>% mutate(
+      method = ifelse(method=="HH", "IT", method)
+    )
+  }
+  s_d_models <- c("(a) Instantaneous","(b) Lagged","(c) Curved",
+                  "(d) Partially convex")
   summ %<>% mutate(
-    method = factor(method, levels=methods),
-    delay_model = factor(
-      delay_model,
-      levels = c("(a) Instantaneous","(b) Lagged",
-                 "(c) Curved", "(d) Partially convex")),
+    delay_model = case_when(
+      delay_model=="Instantaneous" ~ s_d_models[1],
+      delay_model=="Lagged" ~ s_d_models[2],
+      delay_model=="Curved" ~ s_d_models[3],
+      delay_model=="Partially convex" ~ s_d_models[4]
+    )
+  )
+  if (whichsim==6) {
+    summ %<>% filter(method!="MEC (0.0 mix)")
+    # summ %<>% filter(method!="SS") # !!!!!
+  }
+  if (whichsim %in% c(1,2)) {
+    s_methods <- c("IT", "ETI", "SS")
+  } else if (whichsim==3) {
+    s_methods <- c("ETI", "RETI (3 steps)", "RETI (4 steps)")
+  } else if (whichsim==6) {
+    s_methods <- c("ETI", "SS", "MEC (0.1 mix)", "MEC (0.2 mix)")
+  }
+  summ %<>% mutate(
+    method = factor(method, levels=s_methods),
+    delay_model = factor(delay_model, levels=s_d_models),
     power_ate = 1 - beta_ate,
     power_lte = 1 - beta_lte
   )
@@ -462,7 +541,11 @@ if (run_process_results) {
   m_colors <- c(
     IT = cb_colors[2],
     ETI = cb_colors[4],
-    SS = cb_colors[3]
+    SS = cb_colors[3],
+    `MEC (0.1 mix)` = cb_colors[6],
+    `MEC (0.2 mix)` = cb_colors[7],
+    `RETI (3 steps)` = cb_colors[6],
+    `RETI (4 steps)` = cb_colors[7]
   )
   # viridis(5)
 
@@ -470,11 +553,11 @@ if (run_process_results) {
 
 
 
-########################################.
-##### VIZ: Figure for simulation 1 #####
-########################################.
+###########################################.
+##### VIZ: Figure for simulations 1+6 #####
+###########################################.
 
-if (run_process_results) {
+if (run_viz) {
 
   # Export: 8: x 4"
   ggplot(
@@ -505,7 +588,7 @@ if (run_process_results) {
 ##### VIZ: Figure for simulation 2 #####
 ########################################.
 
-if (run_process_results) {
+if (run_viz) {
 
   # Export: 8: x 4"
   ggplot(
@@ -528,6 +611,32 @@ if (run_process_results) {
     theme(
       axis.text.x = element_text(angle=90, hjust=0, vjust=0.4)
     )
+
+}
+
+
+
+##############################################.
+##### VIZ: Figure (2nd) for simulation 6 #####
+##############################################.
+
+if (run_viz) {
+
+  # Export: 8: x 4"
+  ggplot(
+    summ,
+    aes(x=Method, y=mse_wc, fill=Method) # x=which,
+  ) +
+    geom_bar(stat="identity", position=position_dodge(),
+             width=0.8, color="white", size=0.35) +
+    facet_grid(cols=vars(delay_model)) +
+    theme(
+      legend.position="bottom",
+      axis.ticks.x=element_blank(),
+      axis.text.x=element_blank()
+    ) +
+    scale_fill_manual(values=m_colors) +
+    labs(y="MSE", x=NULL, fill="Analysis model")
 
 }
 
@@ -1039,6 +1148,18 @@ if (run_viz) {
 
 
 
+###############################################.
+##### MAIN: Real data analysis (WA state) #####
+###############################################.
+
+if (run_realdata) {
+
+  #
+
+}
+
+
+
 #########################################################.
 ##### MISC: Graphs of delay models (for manuscript) #####
 #########################################################.
@@ -1074,6 +1195,8 @@ if (run_misc) {
     labs(x="Time (steps)", y="Percent of maximum effect achieved")
 
 }
+
+
 
 ###########################################################.
 ##### MISC: Graphs to illustrate "modified X" approach #####
