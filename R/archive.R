@@ -3,6 +3,70 @@
 ##### Old methods from run_analysis() #####
 ###########################################.
 
+# 0. Smoothing spline
+if (method$method=="SS") {
+
+  J <- L$n_time_points
+
+  # If n_extra_time_points>0, recode l terms
+  if (data$params$n_extra_time_points>0) {
+    data$data %<>% mutate(
+      l = ifelse(j>J, J-1, l)
+    )
+  }
+
+  # If effect_reached>0, recode l terms
+  if (method$effect_reached>0) {
+    data$data %<>% mutate(
+      l = ifelse(l>method$effect_reached, method$effect_reached, l)
+    )
+  }
+
+  n_knots <- length(unique(data$data$l))
+
+  if (data_type=="normal") {
+    model <- gamm(
+      y ~ factor(j) + s(l, k=n_knots, fx=FALSE, bs="cr", m=c(3,2), pc=0),
+      # y ~ factor(j) + s(l, k=round(n_knots/2), fx=TRUE, bs="cr", pc=0),
+      random = list(i=~1),
+      data = data$data
+    )
+  } else if (data_type=="binomial") {
+    model <- gamm(
+      y ~ factor(j) + s(l, k=n_knots, fx=FALSE, bs="cr", m=c(3,2), pc=0),
+      # y ~ factor(j) + s(l, k=round(n_knots/2), fx=TRUE, bs="cr", pc=0),
+      random = list(i=~1),
+      data = data$data,
+      family = "binomial"
+    )
+  }
+
+  theta_l_hat <- sapply(c(1:(n_knots-1)), function(l) {
+    predict(model$gam, newdata=list(j=1, l=l), type = "terms")[2]
+  })
+  sigma_l_hat <- vcov(model$gam, freq=FALSE) # freq=TRUE seems to make little difference
+  coeff_names <- dimnames(sigma_l_hat)[[1]]
+  indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,4)=="s(l)"]
+  coeff_names <- coeff_names[indices]
+  sigma_l_hat <- sigma_l_hat[indices,indices]
+
+  res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
+
+  if (is.null(return_extra$whole_curve)) {
+    return (res)
+  } else if (return_extra$whole_curve) {
+    return(c(res,list(
+      theta_1_hat = theta_l_hat[1],
+      theta_2_hat = theta_l_hat[2],
+      theta_3_hat = theta_l_hat[3],
+      theta_4_hat = theta_l_hat[4],
+      theta_5_hat = theta_l_hat[5],
+      theta_6_hat = theta_l_hat[6]
+    )))
+  }
+
+}
+
 # 1. Two-stage methods
 if (analysis$type %in% c("2S LM", "2S GEE", "2S LMM", "2S HL")) {
 

@@ -92,28 +92,94 @@ if (FALSE) {
   data <- generate_dataset(
     n_clusters = 24,
     n_time_points = 7,
-    n_ind_per_cluster = 20, # 50
+    n_ind_per_cluster = 30,
     theta = 0.5,
-    tau = 0.5,
+    tau = 1,
     mu = 1,
-    data_type = "normal",
-    sigma = 0.3,
-    # delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
-    delay_model = list(type="exp", params=list(d=1.5)),
+    data_type = "binomial",
+    sigma = 2,
+    delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
+    # delay_model = list(type="exp", params=list(d=1.5)),
     n_extra_time_points = 0,
-    # rte = NA
-    rte = list(type="height", rho=-0.2, nu=0.4)
+    rte = NA
+    # rte = list(type="height", rho=-0.2, nu=0.4)
     # rte = list(type="height+shape", rho1=-0.1, rho2=0.6, nu=0.4)
   )
 
-  # Set variables needed in run_analysis
-  J <- data$params$n_time_points
-  data_type <- "normal"
+  # # Set variables needed in run_analysis
+  # J <- data$params$n_time_points
+  # data_type <- "normal"
 
-#   # !!!!!
-#   formula <- y ~ factor(j) + factor(l) + (x_ij|i)
-#   model <- lmer(formula, data=data$data)
-#   summary(model)
+  # !!!!!
+
+  df <- data$data # !!!!!
+  df %<>% group_by(i,j,l,x_ij)
+  df %<>% summarize(n=n(), y=sum(y))
+
+  # ETI
+  model_tmb <- glmmTMB(
+    cbind(y,n-y) ~ factor(j) + factor(l) + (1|i),
+    data = df,
+    family = "binomial"
+  )
+  coeffs_eti <- as.numeric(summary(model_tmb)$coefficients$cond[,1][8:13])
+
+  # Manual cubic polynomial
+  df %<>% mutate(
+    c1 = l,
+    c2 = l^2,
+    c3 = l^3,
+    c4 = pmax(0,(l-3)^3),
+    # c5 = pmax(0,(l-4)^3)
+  )
+  model_tmb <- glmmTMB(
+    cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4 + (1|i),
+    # cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5 + (1|i),
+    data = df,
+    family = "binomial"
+  )
+  mb <- as.numeric(summary(model_tmb)$coefficients$cond[,1][8:12])
+  coeffs_cub <- sapply(c(1:6), function(l) {
+    mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*(max(0,(l-3)^3))
+    # + mb[4]*(max(0,(l-2)^3)) + mb[5]*(max(0,(l-4)^3))
+  })
+
+  # Smoothing spline
+  model_ss <- gamm(
+    cbind(y,n-y) ~ factor(j) + s(l, k=7, fx=FALSE, bs="cr", m=c(3,2), pc=0),
+    random = list(i=~1),
+    data = df,
+    family = "binomial"
+  )
+  coeffs_ss <- sapply(c(1:(n_knots-1)), function(l) {
+    predict(model_ss$gam, newdata=list(j=1, l=l), type = "terms")[2]
+  })
+
+  # Regression spline
+  model_rs <- gamm(
+    cbind(y,n-y) ~ factor(j) + s(l, k=4, fx=TRUE, bs="cr", pc=0),
+    random = list(i=~1),
+    data = df,
+    family = "binomial"
+  )
+  coeffs_rs <- sapply(c(1:(n_knots-1)), function(l) {
+    predict(model_rs$gam, newdata=list(j=1, l=l), type = "terms")[2]
+  })
+
+  # Plot
+  ggplot(
+    data.frame(
+      x = rep(c(0:6),4),
+      y = c(c(0,coeffs_eti), c(0,coeffs_ss), c(0,coeffs_rs), c(0,coeffs_cub)),
+      which = rep(c("ETI","SS","RS","CUBE"), each=7)
+    ),
+    aes(x=x, y=y, color=which)
+  ) +
+    geom_line() +
+    labs(y="log(OR)", x="Exposure time", color="Model")
+  #
+
+
 
 }
 
@@ -163,8 +229,11 @@ if (run_main) {
       sigma = 2,
       data_type = "normal",
       method = list(
-        "HH" = list(method="HH"),
+        # "HH" = list(method="HH"),
         "ETI" = list(method="ETI"),
+        "CUBIC-3df" = list(method="CUBIC-3df"), # !!!!!
+        "CUBIC-4df" = list(method="CUBIC-4df"), # !!!!!
+        "CUBIC-5df" = list(method="CUBIC-5df"), # !!!!!
         "SS" = list(method="SS")
       ),
       delay_model = delay_models,
@@ -246,10 +315,10 @@ if (run_main) {
         # "ETI (RTE; height)" = list(method="ETI", re="height"),
         "ETI (RTE MCMC; height)"=list(
           method = "MCMC-RTE-height",
-          mcmc = list(n.adapt=1000, n.burn=1000)),
+          mcmc = list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3)),
         "ETI (RTE MCMC; height+shape)" = list(
           method = "MCMC-RTE-height+shape",
-          mcmc = list(n.adapt=1000, n.burn=1000)) # 2000,2000
+          mcmc = list(n.adapt=2000, n.burn=2000))
       ),
       delay_model = delay_models,
       # delay_model = list("Curved"=list(type="exp",params=list(d=1.5))),
@@ -276,11 +345,11 @@ if (run_main) {
         "ETI" = list(method="ETI"),
         "SS" = list(method="SS"),
         "MEC (0.1 mix)" = list(
-          method="MCMC-STEP-MON", enforce="exp; mix prior 0.1",
-          mcmc=list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3)),
+          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
+          mcmc = list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3)),
         "MEC (0.2 mix)" = list(
-          method="MCMC-STEP-MON", enforce="exp; mix prior 0.2",
-          mcmc=list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3))
+          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.2",
+          mcmc = list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3))
       ),
       delay_model = delay_models,
       n_extra_time_points = 0,
@@ -393,10 +462,10 @@ if (run_main) {
 if (run_process_results) {
 
   # Set simulation
-  whichsim <- 3
+  whichsim <- 1
 
   # Read in simulation object
-  sim <- readRDS("../simba.out/sim3(trap)_20210424.simba")
+  sim <- readRDS("../simba.out/sim_newSmooths_20210426.simba")
 
   # Generate true TATE values
   sim$results %<>% mutate(
@@ -542,6 +611,9 @@ if (run_process_results) {
     IT = cb_colors[2],
     ETI = cb_colors[4],
     SS = cb_colors[3],
+    `CUBIC-3df` = cb_colors[6],
+    `CUBIC-4df` = cb_colors[7],
+    `CUBIC-5df` = cb_colors[8],
     `MEC (0.1 mix)` = cb_colors[6],
     `MEC (0.2 mix)` = cb_colors[7],
     `RETI (3 steps)` = cb_colors[6],
@@ -1154,9 +1226,164 @@ if (run_viz) {
 
 if (run_realdata) {
 
+  # !!!!! Also plot time trend estimates (with CI)
+
+  # Read/process data
+  df <- read.csv("../realdata/wa_state.csv")
+  df %<>% rename(
+    "y" = ct,
+    "i" = hdist,
+    "j" = timex,
+    "l" = timeontrtx,
+    "x_ij" = treatx
+  )
+  df %<>% filter(!is.na(y))
+  df %<>% group_by(i,j,l,x_ij)
+  df %<>% summarize(
+    n = n(),
+    y = sum(y)
+  )
+
+  # HH model
+  model_hh <- glmer(
+    cbind(y,n-y) ~ factor(j) + x_ij + (1|i),
+    data = df,
+    family = "binomial"
+  )
+  coeff_hh <- summary(model_hh)$coefficients["x_ij","Estimate"]
+
+  # ETI model
+  model_eti <- glmmTMB(
+    cbind(y,n-y) ~ factor(j) + factor(l) + (1|i),
+    data = df,
+    family = "binomial"
+  )
+  coeffs_eti <- as.numeric(summary(model_eti)$coefficients$cond[,1][16:29])
+
+  # Cubic spline (3df)
+  df %<>% mutate(
+    c1 = l,
+    c2 = l^2,
+    c3 = l^3
+  )
+  model_cube3 <- glmmTMB(
+    cbind(y,n-y) ~ factor(j) + c1+c2+c3 + (1|i),
+    data = df,
+    family = "binomial"
+  )
+  mb <- as.numeric(summary(model_cube3)$coefficients$cond[,1][16:18])
+  coeffs_cub3 <- sapply(c(1:14), function(l) {
+    mb[1]*l + mb[2]*l^2 + mb[3]*l^3
+  })
+
+  # Cubic spline (7df)
+  df %<>% mutate(
+    c4 = pmax(0,(l-1*(14/5))^3),
+    c5 = pmax(0,(l-2*(14/5))^3),
+    c6 = pmax(0,(l-3*(14/5))^3),
+    c7 = pmax(0,(l-4*(14/5))^3)
+  )
+  model_cube7 <- glmmTMB(
+    cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5+c6+c7 + (1|i),
+    data = df,
+    family = "binomial"
+  )
+  mb <- as.numeric(summary(model_cube7)$coefficients$cond[,1][16:22])
+  coeffs_cub7 <- sapply(c(1:14), function(l) {
+    mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*pmax(0,(l-1*(14/5))^3) +
+      mb[5]*pmax(0,(l-2*(14/5))^3) + mb[6]*pmax(0,(l-3*(14/5))^3) +
+      mb[7]*pmax(0,(l-4*(14/5))^3)
+  })
+
+  # Cubic spline (8df)
+  df %<>% mutate(
+    c4 = pmax(0,(l-1*(14/6))^3),
+    c5 = pmax(0,(l-2*(14/6))^3),
+    c6 = pmax(0,(l-3*(14/6))^3),
+    c7 = pmax(0,(l-4*(14/6))^3),
+    c8 = pmax(0,(l-5*(14/6))^3)
+  )
+  model_cube8 <- glmmTMB(
+    cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5+c6+c7+c8 + (1|i),
+    data = df,
+    family = "binomial"
+  )
+  mb <- as.numeric(summary(model_cube8)$coefficients$cond[,1][16:23])
+  coeffs_cub8 <- sapply(c(1:14), function(l) {
+    mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*pmax(0,(l-1*(14/6))^3) +
+      mb[5]*pmax(0,(l-2*(14/6))^3) + mb[6]*pmax(0,(l-3*(14/6))^3) +
+      mb[7]*pmax(0,(l-4*(14/6))^3) + mb[8]*pmax(0,(l-5*(14/6))^3)
+  })
+
+  # Cubic spline (9df)
+  df %<>% mutate(
+    c4 = pmax(0,(l-1*(14/7))^3),
+    c5 = pmax(0,(l-2*(14/7))^3),
+    c6 = pmax(0,(l-3*(14/7))^3),
+    c7 = pmax(0,(l-4*(14/7))^3),
+    c8 = pmax(0,(l-5*(14/7))^3),
+    c9 = pmax(0,(l-6*(14/7))^3)
+  )
+  model_cube9 <- glmmTMB(
+    cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5+c6+c7+c8+c9 + (1|i),
+    data = df,
+    family = "binomial"
+  )
+  mb <- as.numeric(summary(model_cube9)$coefficients$cond[,1][16:24])
+  coeffs_cub9 <- sapply(c(1:14), function(l) {
+    mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*pmax(0,(l-1*(14/7))^3) +
+      mb[5]*pmax(0,(l-2*(14/7))^3) + mb[6]*pmax(0,(l-3*(14/7))^3) +
+      mb[7]*pmax(0,(l-4*(14/7))^3) + mb[8]*pmax(0,(l-5*(14/7))^3) +
+      mb[9]*pmax(0,(l-6*(14/7))^3)
+  })
+
+  # Smoothing spline
+  n_knots <- length(unique(df$l))
+  model_ss <- gamm(
+    cbind(y,n-y) ~ factor(j) + s(l, k=n_knots, fx=FALSE, bs="cr", m=c(3,2), pc=0),
+    random = list(i=~1),
+    data = df,
+    family = "binomial"
+  )
+  coeffs_ss <- sapply(c(0:(n_knots-1)), function(l) {
+    predict(model_ss$gam, newdata=list(j=1, l=l), type="terms")[2]
+  })
+
+  # Plot estimates
+  ggplot(
+    data.frame(
+      x = rep(c(0:14),5),
+      y = c(c(0,coeffs_eti), c(0,coeffs_cub3), c(0,coeffs_cub7),
+            c(0,coeffs_cub9), coeffs_ss),
+      which = rep(c("ETI","CUB3","CUB7","CUB9","SS"), each=15)
+    ),
+    aes(x=x, y=y, color=which)
+  ) +
+    geom_line() +
+    geom_hline(yintercept=coeff_hh, linetype="longdash") +
+    labs(y="log(OR)", x="Exposure time", color="Model")
+
+  # !!!!! Testing smoothing spline
+  n <- 20
+  x <- seq(0,8, length.out=n)
+  y <- sin(x) + rnorm(n, sd=1)
+  model_ss <- gam(y ~ s(x, k=n, fx=FALSE, bs="cr", m=c(3,2)))
+  ss <- as.numeric(predict(model_ss, newdata=list(x=x), type="terms"))
+  ss <- ss + as.numeric(summary(model_ss)$p.coeff)
+  model_ss2 <- smooth.spline(x=x, y=y, cv=F, all.knots=T, keep.data=F)
+  ss2 <- list(x=predict(model_ss2)$x, y=predict(model_ss2)$y)
+  ggplot(
+    data.frame(
+      x = c(x, x, ss2$x),
+      y = c(y, ss, ss2$y),
+      which = rep(c("Data","SS","SS2"), each=n)
+    ),
+    aes(x=x, y=y, color=which)
+  ) +
+    geom_line()
   #
 
-}
+  }
 
 
 

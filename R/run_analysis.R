@@ -206,64 +206,39 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
   }
 
-  if (method$method=="SS") {
+  if (method$method=="CUBIC-4df") {
 
+    # !!!!! INCOMPLETE; TESTING !!!!!
     J <- L$n_time_points
+    data$data %<>% mutate(
+      b1 = l,
+      b2 = l^2,
+      b3 = l^3,
+      b4 = pmax(0,(l-3)^3)
+    )
+    formula <- y ~ factor(j) + b1+b2+b3+b4 + (1|i)
+    model <- lmer(formula, data=data$data)
+    coeff_names <- names(summary(model)$coefficients[,1])
 
-    # If n_extra_time_points>0, recode l terms
-    if (data$params$n_extra_time_points>0) {
-      data$data %<>% mutate(
-        l = ifelse(j>J, J-1, l)
-      )
-    }
-
-    # If effect_reached>0, recode l terms
-    if (method$effect_reached>0) {
-      data$data %<>% mutate(
-        l = ifelse(l>method$effect_reached, method$effect_reached, l)
-      )
-    }
-
-    n_knots <- length(unique(data$data$l))
-
-    if (data_type=="normal") {
-      model <- gamm(
-        y ~ factor(j) + s(l, k=n_knots, fx=FALSE, bs="cr", m=2, pc=0),
-        random = list(i=~1),
-        data = data$data
-      )
-    } else if (data_type=="binomial") {
-      model <- gamm(
-        y ~ factor(j) + s(l, k=n_knots, fx=FALSE, bs="cr", m=2, pc=0),
-        random = list(i=~1),
-        data = data$data,
-        family = "binomial"
-      )
-    }
-
-    theta_l_hat <- sapply(c(1:(n_knots-1)), function(l) {
-      predict(model$gam, newdata=list(j=1, l=l), type = "terms")[2]
-    })
-    sigma_l_hat <- vcov(model$gam, freq=FALSE) # freq=TRUE seems to make little difference
-    coeff_names <- dimnames(sigma_l_hat)[[1]]
-    indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,4)=="s(l)"]
+    b_hat <- as.numeric(summary(model)$coefficients[,1])
+    sigma_b_hat <- vcov(model)
+    indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,1)=="b"]
     coeff_names <- coeff_names[indices]
-    sigma_l_hat <- sigma_l_hat[indices,indices]
+    b_hat <- b_hat[indices]
+    sigma_b_hat <- sigma_b_hat[indices,indices]
+    sigma_b_hat <- as.matrix(sigma_b_hat)
 
-    res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
-
-    if (is.null(return_extra$whole_curve)) {
-      return (res)
-    } else if (return_extra$whole_curve) {
-      return(c(res,list(
-        theta_1_hat = theta_l_hat[1],
-        theta_2_hat = theta_l_hat[2],
-        theta_3_hat = theta_l_hat[3],
-        theta_4_hat = theta_l_hat[4],
-        theta_5_hat = theta_l_hat[5],
-        theta_6_hat = theta_l_hat[6]
-      )))
-    }
+    B <- rbind(
+      c(1,1^2,1^3,max(0,(1-3)^3)),
+      c(2,2^2,2^3,max(0,(2-3)^3)),
+      c(3,3^2,3^3,max(0,(3-3)^3)),
+      c(4,4^2,4^3,max(0,(4-3)^3)),
+      c(5,5^2,5^3,max(0,(5-3)^3)),
+      c(6,6^2,6^3,max(0,(6-3)^3))
+    )
+    theta_l_hat <- as.numeric(B %*% b_hat)
+    sigma_l_hat <- B %*% sigma_b_hat %*% t(B)
+    return (res(theta_l_hat,sigma_l_hat,method$effect_reached))
 
   }
 
