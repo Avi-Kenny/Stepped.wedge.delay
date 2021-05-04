@@ -46,8 +46,9 @@ generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
   crossover_times <- rep(2:n_time_points, each=n_clust_per_time)
 
   # Create beta_js (linear time trend from 0 down to -0.5)
+  # Will go beyond -0.5 if n_extra_time_points>0
   # Main constraint is that beta_1=0
-  beta_js <- sapply(1:n_time_points, function(j){
+  beta_js <- sapply(1:(n_time_points+n_extra_time_points), function(j){
     ((1-j)/(n_time_points-1)) * 0.5
   })
 
@@ -141,11 +142,12 @@ generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
 
   }
 
-  params <- as.list(match.call())
-  params$crossover_times <- crossover_times
-
   return (list(
-    "params" = params,
+    "params" = list(
+      n_time_points = n_time_points,
+      n_extra_time_points = n_extra_time_points,
+      crossover_times = crossover_times
+    ),
     "beta_js" = beta_js,
     "theta_ls" = theta_ls,
     "data" = data

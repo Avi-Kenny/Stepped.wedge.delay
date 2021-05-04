@@ -3,6 +3,38 @@
 ##### Old methods from run_analysis() #####
 ###########################################.
 
+# -1. Rejection
+if (method$enforce=="rejection") {
+
+  # Throw out samples that don't satisfy parameter constraints
+  # tol=0.2:  616/1,000 kept
+  # tol=0.1:  105/1,000 kept
+  # tol=0.05: 18/1,000 kept
+  # output=o
+  n_kept <- 0
+  n_tossed <- 0
+  for (i in 1:mcmc$n.chains) {
+    for (j in 1:n_samp) {
+      if (max(output[[i]][j,])>method$tolerance) {
+        output[[i]][j,] <- NA
+        n_tossed <- n_tossed + 1
+      } else {
+        n_kept <- n_kept + 1
+      }
+    }
+  }
+  if (n_kept==0) {
+    stop("No posterior samples were kept")
+  }
+
+}
+if (method$enforce=="rejection") {
+  res$n_kept <- n_kept
+  res$n_tossed <- n_tossed
+}
+
+
+
 # 0. Smoothing spline
 if (method$method=="SS") {
 

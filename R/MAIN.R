@@ -3,29 +3,21 @@
 
 
 
-# install.packages(
-#   pkgs = "fastDummies",
-#   lib = "/home/students/avikenny/Desktop/R_lib", # UW - Bayes
-#   repos = "http://cran.us.r-project.org",
-#   dependencies = TRUE
-# )
-
-
-
 ##################.
 ##### CONFIG #####
 ##################.
 
 # Set global config
 cfg <- list(
-  level_set_which = "level_set_1",
+  level_set_which = "level_set_123",
   run_or_update = "run",
-  num_sim = 1000,
+  num_sim = 500,
   pkgs = c("dplyr", "stringr", "lme4", "rjags", "Iso", "sqldf", "mgcv", "MASS",
-           "fastDummies", "car"),
+           "fastDummies", "car", "splines"),
   pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales"), # devtools::install_github("zeehio/facetscales")
   parallel = "none",
-  stop_at_error = FALSE
+  stop_at_error = FALSE,
+  mcmc = list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3, thin=1)
 )
 
 # Set cluster config
@@ -35,6 +27,9 @@ cluster_config <- list(
   js = "slurm",
   dir = "/home/akenny/z.stepped.wedge"
 )
+if (cluster_config$js=="sge") {
+  cfg$pkgs <- cfg$pkgs[cfg$pkgs!="rjags"]
+}
 
 
 
@@ -96,10 +91,11 @@ if (FALSE) {
     theta = 0.5,
     tau = 1,
     mu = 1,
-    data_type = "binomial",
+    data_type = "normal",
     sigma = 2,
-    delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
-    # delay_model = list(type="exp", params=list(d=1.5)),
+    # delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
+    delay_model = list(type="exp", params=list(d=1.5)),
+    # n_extra_time_points = 2,
     n_extra_time_points = 0,
     rte = NA
     # rte = list(type="height", rho=-0.2, nu=0.4)
@@ -107,79 +103,77 @@ if (FALSE) {
   )
 
   # # Set variables needed in run_analysis
-  # J <- data$params$n_time_points
-  # data_type <- "normal"
+  J <- data$params$n_time_points
+  data_type <- "normal"
 
-  # !!!!!
+  # Visualize model fits
+  {
+    df <- data$data # !!!!!
+    df %<>% group_by(i,j,l,x_ij)
+    df %<>% summarize(n=n(), y=sum(y))
 
-  df <- data$data # !!!!!
-  df %<>% group_by(i,j,l,x_ij)
-  df %<>% summarize(n=n(), y=sum(y))
+    # ETI
+    model_tmb <- glmmTMB(
+      cbind(y,n-y) ~ factor(j) + factor(l) + (1|i),
+      data = df,
+      family = "binomial"
+    )
+    coeffs_eti <- as.numeric(summary(model_tmb)$coefficients$cond[,1][8:13])
 
-  # ETI
-  model_tmb <- glmmTMB(
-    cbind(y,n-y) ~ factor(j) + factor(l) + (1|i),
-    data = df,
-    family = "binomial"
-  )
-  coeffs_eti <- as.numeric(summary(model_tmb)$coefficients$cond[,1][8:13])
+    # Manual cubic polynomial
+    df %<>% mutate(
+      c1 = l,
+      c2 = l^2,
+      c3 = l^3,
+      c4 = pmax(0,(l-3)^3),
+      # c5 = pmax(0,(l-4)^3)
+    )
+    model_tmb <- glmmTMB(
+      cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4 + (1|i),
+      # cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5 + (1|i),
+      data = df,
+      family = "binomial"
+    )
+    mb <- as.numeric(summary(model_tmb)$coefficients$cond[,1][8:12])
+    coeffs_cub <- sapply(c(1:6), function(l) {
+      mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*(max(0,(l-3)^3))
+      # + mb[4]*(max(0,(l-2)^3)) + mb[5]*(max(0,(l-4)^3))
+    })
 
-  # Manual cubic polynomial
-  df %<>% mutate(
-    c1 = l,
-    c2 = l^2,
-    c3 = l^3,
-    c4 = pmax(0,(l-3)^3),
-    # c5 = pmax(0,(l-4)^3)
-  )
-  model_tmb <- glmmTMB(
-    cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4 + (1|i),
-    # cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5 + (1|i),
-    data = df,
-    family = "binomial"
-  )
-  mb <- as.numeric(summary(model_tmb)$coefficients$cond[,1][8:12])
-  coeffs_cub <- sapply(c(1:6), function(l) {
-    mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*(max(0,(l-3)^3))
-    # + mb[4]*(max(0,(l-2)^3)) + mb[5]*(max(0,(l-4)^3))
-  })
+    # Smoothing spline
+    model_ss <- gamm(
+      cbind(y,n-y) ~ factor(j) + s(l, k=7, fx=FALSE, bs="cr", m=c(3,2), pc=0),
+      random = list(i=~1),
+      data = df,
+      family = "binomial"
+    )
+    coeffs_ss <- sapply(c(1:(n_knots-1)), function(l) {
+      predict(model_ss$gam, newdata=list(j=1, l=l), type = "terms")[2]
+    })
 
-  # Smoothing spline
-  model_ss <- gamm(
-    cbind(y,n-y) ~ factor(j) + s(l, k=7, fx=FALSE, bs="cr", m=c(3,2), pc=0),
-    random = list(i=~1),
-    data = df,
-    family = "binomial"
-  )
-  coeffs_ss <- sapply(c(1:(n_knots-1)), function(l) {
-    predict(model_ss$gam, newdata=list(j=1, l=l), type = "terms")[2]
-  })
+    # Regression spline
+    model_rs <- gamm(
+      cbind(y,n-y) ~ factor(j) + s(l, k=4, fx=TRUE, bs="cr", pc=0),
+      random = list(i=~1),
+      data = df,
+      family = "binomial"
+    )
+    coeffs_rs <- sapply(c(1:(n_knots-1)), function(l) {
+      predict(model_rs$gam, newdata=list(j=1, l=l), type = "terms")[2]
+    })
 
-  # Regression spline
-  model_rs <- gamm(
-    cbind(y,n-y) ~ factor(j) + s(l, k=4, fx=TRUE, bs="cr", pc=0),
-    random = list(i=~1),
-    data = df,
-    family = "binomial"
-  )
-  coeffs_rs <- sapply(c(1:(n_knots-1)), function(l) {
-    predict(model_rs$gam, newdata=list(j=1, l=l), type = "terms")[2]
-  })
-
-  # Plot
-  ggplot(
-    data.frame(
-      x = rep(c(0:6),4),
-      y = c(c(0,coeffs_eti), c(0,coeffs_ss), c(0,coeffs_rs), c(0,coeffs_cub)),
-      which = rep(c("ETI","SS","RS","CUBE"), each=7)
-    ),
-    aes(x=x, y=y, color=which)
-  ) +
-    geom_line() +
-    labs(y="log(OR)", x="Exposure time", color="Model")
-  #
-
-
+    # Plot
+    ggplot(
+      data.frame(
+        x = rep(c(0:6),4),
+        y = c(c(0,coeffs_eti), c(0,coeffs_ss), c(0,coeffs_rs), c(0,coeffs_cub)),
+        which = rep(c("ETI","SS","RS","CUBE"), each=7)
+      ),
+      aes(x=x, y=y, color=which)
+    ) +
+      geom_line() +
+      labs(y="log(OR)", x="Exposure time", color="Model")
+  }
 
 }
 
@@ -212,15 +206,19 @@ if (run_main) {
     )
 
     # !!!!! Method archive
-    # "MCMC (exp; N(1,10) mix 0.2)" = list(method="MCMC-STEP-MON", enforce="exp; N(1,10) mix (0.2)",mcmc=list(n.adapt=1000, n.burn=2000, n.iter=1000, n.chains=2)),
-    # "PAVA (wts: equal)" = list(method="MCMC-STEP-PAVA", wts="equal",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)),
-    # "PAVA (wts: samp_size)" = list(method="MCMC-STEP-PAVA", wts="samp_size",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)),
-    # "PAVA (wts: sqrt_samp_size)" = list(method="MCMC-STEP-PAVA", wts="sqrt_samp_size",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2))
-    # "MCMC-STEP (exp; mix prior 0.2)" = list(method="MCMC-STEP-MON",enforce="exp; mix prior 0.2")
+    {
+      # "MCMC (exp; N(1,10) mix 0.2)" = list(method="MCMC-STEP-MON", enforce="exp; N(1,10) mix (0.2)",mcmc=list(n.adapt=1000, n.burn=2000, n.iter=1000, n.chains=2)),
+      # "PAVA (wts: equal)" = list(method="MCMC-STEP-PAVA", wts="equal",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)),
+      # "PAVA (wts: samp_size)" = list(method="MCMC-STEP-PAVA", wts="samp_size",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)),
+      # "PAVA (wts: sqrt_samp_size)" = list(method="MCMC-STEP-PAVA", wts="sqrt_samp_size",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2))
+      # "MCMC-STEP (exp; mix prior 0.2)" = list(method="MCMC-STEP-MON",enforce="exp; mix prior 0.2")
+    }
 
     # Simulation 1: dangers of "immediate treatment" model
-    # 12 level combos
-    level_set_1 <- list(
+    # Simulation 2: comparing all methods
+    # Simulation 3: estimation of the entire curve
+    # 16 level combos
+    level_set_123 <- list(
       n_clusters = 24,
       n_time_points = 7,
       n_ind_per_cluster = 50,
@@ -229,22 +227,31 @@ if (run_main) {
       sigma = 2,
       data_type = "normal",
       method = list(
-        # "HH" = list(method="HH"),
-        "ETI" = list(method="ETI"),
-        "CUBIC-3df" = list(method="CUBIC-3df"), # !!!!!
-        "CUBIC-4df" = list(method="CUBIC-4df"), # !!!!!
-        "CUBIC-5df" = list(method="CUBIC-5df"), # !!!!!
-        "SS" = list(method="SS")
+        # "IT" = list(method="IT"),
+        # "ETI" = list(method="ETI"),
+        # "NCS (4df)" = list(method="NCS-4df"),
+        # "MEC (P=0.1)" = list(
+        #   method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
+        #   mcmc = cfg$mcmc),
+        # "MEC (v2)" = list(
+        #   method = "MCMC-STEP-MON", enforce="exp; mix prior v2",
+        #   mcmc = cfg$mcmc),
+        # "MEC (v3)" = list(
+        #   method = "MCMC-STEP-MON", enforce="exp; mix prior v3",
+        #   mcmc = cfg$mcmc)
+        "MEC (v2b)" = list(
+          method = "MCMC-STEP-MON", enforce="exp; mix prior v2b",
+          mcmc = cfg$mcmc)
       ),
       delay_model = delay_models,
       n_extra_time_points = 0,
       rte = NA,
-      return_extra = list("none"=list())
+      return_extra = list("whole_curve"=list(whole_curve=TRUE))
     )
 
-    # Simulation 2: power of CI-based hypothesis tests
-    # 72 level combos
-    level_set_2 <- list(
+    # Simulation 4: power of Wald-type hypothesis tests
+    # 96 level combos
+    level_set_4 <- list(
       n_clusters = 24,
       n_time_points = 7,
       n_ind_per_cluster = 50,
@@ -253,9 +260,12 @@ if (run_main) {
       sigma = 2,
       data_type = "normal",
       method = list(
-        "HH" = list(method="HH"),
+        "IT" = list(method="IT"),
         "ETI" = list(method="ETI"),
-        "SS" = list(method="SS")
+        "NCS (4df)" = list(method="NCS-4df"),
+        "MEC (P=0.1)" = list(
+          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
+          mcmc = cfg$mcmc)
       ),
       delay_model = delay_models,
       n_extra_time_points = 0,
@@ -263,9 +273,9 @@ if (run_main) {
       return_extra = list("none"=list())
     )
 
-    # Simulation 3: effect_reached
+    # Simulation 5: effect_reached
     # 12 level combos
-    level_set_3 <- list(
+    level_set_5 <- list(
       n_clusters = 24,
       n_time_points = 7,
       n_ind_per_cluster = 50,
@@ -284,9 +294,39 @@ if (run_main) {
       return_extra = list("none"=list())
     )
 
-    # Simulation 4: n_extra_time_points
+    # Simulation 6: random treatment effects
+    level_set_6 <- list(
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = 20,
+      theta = 0.5,
+      tau = 0.5,
+      sigma = 0.2,
+      data_type = "normal",
+      method = list(
+        "ETI" = list(method="ETI"),
+        # "ETI (RTE; height)" = list(method="ETI", re="height"),
+        "ETI (RTE MCMC; height)"=list(
+          method = "MCMC-RTE-height",
+          mcmc = cfg$mcmc),
+        "ETI (RTE MCMC; height+shape)" = list(
+          method = "MCMC-RTE-height+shape",
+          mcmc = cfg$mcmc)
+      ),
+      delay_model = delay_models,
+      # delay_model = list("Curved"=list(type="exp",params=list(d=1.5))),
+      n_extra_time_points = 0,
+      rte = list(
+        # "none" = NA,
+        # "height" = list(type="height", nu=0.4, rho=-0.2),
+        "height+shape" = list(type="height+shape", nu=0.4, rho1=-0.2, rho2=0.5)
+      ),
+      return_extra = list("rte"=list(rte=TRUE))
+    )
+
+    # Simulation 7: n_extra_time_points
     # 12 level combos
-    level_set_4 <- list(
+    level_set_7 <- list(
       n_clusters = 24,
       n_time_points = 7,
       n_ind_per_cluster = 50,
@@ -300,65 +340,6 @@ if (run_main) {
       rte = NA,
       return_extra = list("none"=list())
     )
-
-    # Simulation 5: random treatment effects
-    level_set_5 <- list(
-      n_clusters = 24,
-      n_time_points = 7,
-      n_ind_per_cluster = 20,
-      theta = 0.5,
-      tau = 0.5,
-      sigma = 0.2,
-      data_type = "normal",
-      method = list(
-        "ETI" = list(method="ETI"),
-        # "ETI (RTE; height)" = list(method="ETI", re="height"),
-        "ETI (RTE MCMC; height)"=list(
-          method = "MCMC-RTE-height",
-          mcmc = list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3)),
-        "ETI (RTE MCMC; height+shape)" = list(
-          method = "MCMC-RTE-height+shape",
-          mcmc = list(n.adapt=2000, n.burn=2000))
-      ),
-      delay_model = delay_models,
-      # delay_model = list("Curved"=list(type="exp",params=list(d=1.5))),
-      n_extra_time_points = 0,
-      rte = list(
-        # "none" = NA,
-        # "height" = list(type="height", nu=0.4, rho=-0.2),
-        "height+shape" = list(type="height+shape", nu=0.4, rho1=-0.2, rho2=0.5)
-      ),
-      return_extra = list("rte"=list(rte=TRUE))
-    )
-
-    # Simulation 6: Monotone Effect Curve (MEC) model
-    # 12 level combos
-    level_set_6 <- list(
-      n_clusters = 24,
-      n_time_points = 7,
-      n_ind_per_cluster = 20, # !!!!! 50
-      theta = 0.5,
-      tau = 1,
-      sigma = 0.2, # !!!!! 2
-      data_type = "normal",
-      method = list(
-        "ETI" = list(method="ETI"),
-        "SS" = list(method="SS"),
-        "MEC (0.1 mix)" = list(
-          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
-          mcmc = list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3)),
-        "MEC (0.2 mix)" = list(
-          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.2",
-          mcmc = list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3))
-      ),
-      delay_model = delay_models,
-      n_extra_time_points = 0,
-      rte = NA,
-      return_extra = list("whole_curve"=list(whole_curve=TRUE))
-    )
-
-    # # Simulation 7: !!!!!
-    # level_set_7 <- list(...)
 
     level_set <- eval(as.name(cfg$level_set_which))
 
@@ -413,9 +394,7 @@ if (run_main) {
       },
 
       main = {
-        # print(paste("Check 1:",Sys.time())) # !!!!!
         sim %<>% run()
-        # print(paste("Check 2:",Sys.time())) # !!!!!
       },
 
       last = {
@@ -462,10 +441,11 @@ if (run_main) {
 if (run_process_results) {
 
   # Set simulation
-  whichsim <- 1
+  whichsim <- 2
 
   # Read in simulation object
-  sim <- readRDS("../simba.out/sim_newSmooths_20210426.simba")
+  sim <- readRDS("../simba.out/sim123_20210501.simba")
+  # sim <- readRDS("../simba.out/sim4_20210501.simba")
 
   # Generate true TATE values
   sim$results %<>% mutate(
@@ -487,7 +467,7 @@ if (run_process_results) {
   )
 
   # Generate true theta values
-  if (whichsim==6) {
+  if (whichsim==3) {
     theta <- sim$results[1,"theta"]
     thetas <- list(
       "I" = rep(theta,6),
@@ -558,11 +538,6 @@ if (run_process_results) {
   summ %<>% subset(select=-c(1:4,6:8))
 
   # Transform summary data
-  if (whichsim %in% c(1,2)) {
-    summ %<>% mutate(
-      method = ifelse(method=="HH", "IT", method)
-    )
-  }
   s_d_models <- c("(a) Instantaneous","(b) Lagged","(c) Curved",
                   "(d) Partially convex")
   summ %<>% mutate(
@@ -573,16 +548,20 @@ if (run_process_results) {
       delay_model=="Partially convex" ~ s_d_models[4]
     )
   )
-  if (whichsim==6) {
-    summ %<>% filter(method!="MEC (0.0 mix)")
-    # summ %<>% filter(method!="SS") # !!!!!
-  }
-  if (whichsim %in% c(1,2)) {
-    s_methods <- c("IT", "ETI", "SS")
-  } else if (whichsim==3) {
-    s_methods <- c("ETI", "RETI (3 steps)", "RETI (4 steps)")
+  if (whichsim==1) {
+    s_methods <- c("IT", "ETI")
+    summ %<>% filter(method %in% c("IT","ETI"))
+  } else if (whichsim %in% c(2,3)) {
+    s_methods <- c("ETI", "NCS (4df)", "MEC (P=0.1)")
+    summ %<>% filter(method!="IT")
+  } else if (whichsim==4) {
+    s_methods <- c("IT", "ETI", "NCS (4df)", "MEC (P=0.1)")
+  } else if (whichsim==5) {
+    s_methods <- c("ETI", "RETI (4 steps)", "RETI (3 steps)")
   } else if (whichsim==6) {
-    s_methods <- c("ETI", "SS", "MEC (0.1 mix)", "MEC (0.2 mix)")
+    # !!!!! TO DO
+  } else if (whichsim==7) {
+    s_methods <- "ETI"
   }
   summ %<>% mutate(
     method = factor(method, levels=s_methods),
@@ -590,34 +569,43 @@ if (run_process_results) {
     power_ate = 1 - beta_ate,
     power_lte = 1 - beta_lte
   )
-  summ %<>% rename("Method"=method)
+  summ %<>% rename("Method"=method, "n_extra"=n_extra_time_points)
   p_data <- sqldf("
-    SELECT Method, delay_model, 'TATE' AS which, bias_ate AS bias, theta,
-    cov_ate AS Coverage, power_ate AS Power, mse_ate AS MSE FROM summ
-    UNION SELECT Method, delay_model, 'LTE', bias_lte, theta,
-    cov_lte, power_lte, mse_lte FROM summ
+    SELECT Method, n_extra, delay_model, 'TATE' AS which, bias_ate AS bias,
+      theta, cov_ate AS Coverage, power_ate AS Power, mse_ate AS MSE FROM summ
+    UNION SELECT Method, n_extra, delay_model, 'LTE', bias_lte,
+      theta, cov_lte, power_lte, mse_lte FROM summ
   ")
   p_data <- sqldf("
-    SELECT Method, delay_model, which, 'Bias' AS stat, Bias AS value, theta FROM p_data
-    UNION SELECT Method, delay_model, which, 'Coverage', Coverage, theta FROM p_data
-    UNION SELECT Method, delay_model, which, 'Power', Power, theta FROM p_data
-    UNION SELECT Method, delay_model, which, 'MSE', MSE, theta FROM p_data
+    SELECT Method, n_extra, delay_model, which, 'Bias' AS stat, Bias AS value,
+      theta FROM p_data
+    UNION SELECT Method, n_extra, delay_model, which, 'Coverage', Coverage,
+      theta FROM p_data
+    UNION SELECT Method, n_extra, delay_model, which, 'Power', Power,
+      theta FROM p_data
+    UNION SELECT Method, n_extra, delay_model, which, 'MSE', MSE,
+      theta FROM p_data
   ")
   p_data %<>% mutate(which = factor(which, levels=c("TATE", "LTE")))
+  p_data %<>% mutate(n_extra = as.character(n_extra))
+  p_data %<>% rename("Extra time points"=n_extra)
 
   cb_colors <- c("#999999", "#E69F00", "#56B4E9", "#009E73",
                  "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
   m_colors <- c(
     IT = cb_colors[2],
     ETI = cb_colors[4],
-    SS = cb_colors[3],
-    `CUBIC-3df` = cb_colors[6],
-    `CUBIC-4df` = cb_colors[7],
-    `CUBIC-5df` = cb_colors[8],
-    `MEC (0.1 mix)` = cb_colors[6],
-    `MEC (0.2 mix)` = cb_colors[7],
+    `NCS (4df)` = cb_colors[3],
+    `MEC (P=0.1)` = cb_colors[6],
+    # `CUBIC-4df` = cb_colors[6],
+    # `NCS-2df` = cb_colors[7],
+    # `NCS-3df` = cb_colors[8],
+    # `NCS-4df` = cb_colors[5],
     `RETI (3 steps)` = cb_colors[6],
-    `RETI (4 steps)` = cb_colors[7]
+    `RETI (4 steps)` = cb_colors[7],
+    `0` = cb_colors[4],
+    `1` = cb_colors[7],
+    `2` = cb_colors[6]
   )
   # viridis(5)
 
@@ -625,9 +613,9 @@ if (run_process_results) {
 
 
 
-###########################################.
-##### VIZ: Figure for simulations 1+6 #####
-###########################################.
+#############################################.
+##### VIZ: Figure for simulations 1,2,5 #####
+#############################################.
 
 if (run_viz) {
 
@@ -657,7 +645,7 @@ if (run_viz) {
 
 
 ########################################.
-##### VIZ: Figure for simulation 2 #####
+##### VIZ: Figure for simulation 4 #####
 ########################################.
 
 if (run_viz) {
@@ -677,12 +665,43 @@ if (run_viz) {
     ) +
     theme(legend.position="bottom") +
     scale_color_manual(values=m_colors) +
-    scale_shape_manual(values=c(15,16,17)) +
+    # scale_shape_manual(values=c(15,16,17)) +
     facet_grid(rows=vars(which), cols=vars(delay_model)) +
     scale_y_continuous(labels=percent_format()) +
     theme(
       axis.text.x = element_text(angle=90, hjust=0, vjust=0.4)
     )
+
+}
+
+
+
+########################################.
+##### VIZ: Figure for simulation 7 #####
+########################################.
+
+if (run_viz) {
+
+  # Export: 8: x 4"
+  ggplot(
+    filter(p_data, stat!="Power"),
+    aes(x=which, y=value, fill=`Extra time points`)
+  ) +
+    geom_hline(
+      aes(yintercept=y),
+      data=data.frame(y=0.95, stat="Coverage"),
+      linetype="longdash", color="grey"
+    ) +
+    geom_bar(stat="identity", position=position_dodge(),
+             width=0.8, color="white", size=0.35) +
+    facet_grid_sc(cols=vars(delay_model), rows=vars(stat), scales=list(y=list(
+      Bias = scale_y_continuous(labels = percent_format()),
+      Coverage = scale_y_continuous(labels = percent_format()),
+      MSE = scale_y_continuous()
+    ))) +
+    theme(legend.position="bottom") +
+    scale_fill_manual(values=m_colors) +
+    labs(y=NULL, x=NULL, fill="Extra time points")
 
 }
 
@@ -908,7 +927,7 @@ if (run_viz) {
   }
 
   plot_data %<>% mutate(
-    method = factor(method, levels=c("HH","SS","MSS"))
+    method = factor(method, levels=c("IT","SS","MSS"))
   )
 
   # Plot: Estimates and CIs
@@ -1063,23 +1082,23 @@ if (run_viz) {
   if (which=="Estimates and CIs") {
     plot_data %<>% mutate(
       method = factor(method, levels=c(
-        "HH", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1",
+        "IT", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1",
         "Smooth 2", "SPL Mono", "SPL (1,6)", "2S LMM"
       ))
     )
   }
   if (which=="Power") {
     # plot_data %<>% filter(method %in% c(
-    #   "HH", "Wash 2", "SPL (1-6)", "Smooth 2", "SPL (1,6)", "ETI"
+    #   "IT", "Wash 2", "SPL (1-6)", "Smooth 2", "SPL (1,6)", "ETI"
     # ))
     # plot_data %<>% mutate(
     #   method = factor(method, levels=c(
-    #     "HH", "Wash 2", "SPL (1-6)", "Smooth 2", "SPL (1,6)", "ETI"
+    #     "IT", "Wash 2", "SPL (1-6)", "Smooth 2", "SPL (1,6)", "ETI"
     #   ))
     # )
     # plot_data %<>% mutate(
     #   method = factor(method, levels=c(
-    #     "HH", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1",
+    #     "IT", "Wash 1", "Wash 2", "SPL (1-6)", "Smooth 1",
     #     "Smooth 2", "SPL Mono", "SPL (1,6)", "2S LMM", "ETI"
     #   ))
     # )
@@ -1226,7 +1245,10 @@ if (run_viz) {
 
 if (run_realdata) {
 
+  library(glmmTMB)
+
   # !!!!! Also plot time trend estimates (with CI)
+  # !!!!! model time trend with spline
 
   # Read/process data
   df <- read.csv("../realdata/wa_state.csv")
@@ -1244,13 +1266,13 @@ if (run_realdata) {
     y = sum(y)
   )
 
-  # HH model
-  model_hh <- glmer(
+  # IT model
+  model_it <- glmer(
     cbind(y,n-y) ~ factor(j) + x_ij + (1|i),
     data = df,
     family = "binomial"
   )
-  coeff_hh <- summary(model_hh)$coefficients["x_ij","Estimate"]
+  coeff_it <- summary(model_it)$coefficients["x_ij","Estimate"]
 
   # ETI model
   model_eti <- glmmTMB(
@@ -1295,26 +1317,6 @@ if (run_realdata) {
       mb[7]*pmax(0,(l-4*(14/5))^3)
   })
 
-  # Cubic spline (8df)
-  df %<>% mutate(
-    c4 = pmax(0,(l-1*(14/6))^3),
-    c5 = pmax(0,(l-2*(14/6))^3),
-    c6 = pmax(0,(l-3*(14/6))^3),
-    c7 = pmax(0,(l-4*(14/6))^3),
-    c8 = pmax(0,(l-5*(14/6))^3)
-  )
-  model_cube8 <- glmmTMB(
-    cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5+c6+c7+c8 + (1|i),
-    data = df,
-    family = "binomial"
-  )
-  mb <- as.numeric(summary(model_cube8)$coefficients$cond[,1][16:23])
-  coeffs_cub8 <- sapply(c(1:14), function(l) {
-    mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*pmax(0,(l-1*(14/6))^3) +
-      mb[5]*pmax(0,(l-2*(14/6))^3) + mb[6]*pmax(0,(l-3*(14/6))^3) +
-      mb[7]*pmax(0,(l-4*(14/6))^3) + mb[8]*pmax(0,(l-5*(14/6))^3)
-  })
-
   # Cubic spline (9df)
   df %<>% mutate(
     c4 = pmax(0,(l-1*(14/7))^3),
@@ -1345,22 +1347,272 @@ if (run_realdata) {
     data = df,
     family = "binomial"
   )
-  coeffs_ss <- sapply(c(0:(n_knots-1)), function(l) {
+  coeffs_ss <- sapply(c(1:(n_knots-1)), function(l) {
     predict(model_ss$gam, newdata=list(j=1, l=l), type="terms")[2]
   })
 
+  # Natural cubic spline
+  ns_basis <- ns(c(0:14), knots=c(14/4,(2*14)/4,(3*14)/4))
+  df$c1 <- ns_basis[df$l+1,1]
+  df$c2 <- ns_basis[df$l+1,2]
+  df$c3 <- ns_basis[df$l+1,3]
+  df$c4 <- ns_basis[df$l+1,4]
+  model_ncs <- glmmTMB(
+    cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4 + (1|i),
+    data = df,
+    family = "binomial"
+  )
+  mb <- as.numeric(summary(model_ncs)$coefficients$cond[,1][16:19])
+  coeffs_ncs <- as.numeric(sapply(c(1:14), function(l) {
+    mb[1]*ns_basis[l+1,1] + mb[2]*ns_basis[l+1,2] +
+    mb[3]*ns_basis[l+1,3] + mb[4]*ns_basis[l+1,4]
+  }))
+
+  B <- matrix(NA, nrow=14, ncol=4)
+  for (i in 1:14) {
+    for (j in 1:4) {
+      B[i,j] <- ns_basis[i+1,j]
+    }
+  }
+  theta_l_hat <- as.numeric(B %*% mb)
+  coeffs_ncs <- theta_l_hat
+
+  # Monotone Effect Curve Bayesian model (P=0.1)
+  # !!!!! Refactor some of this section so that I can just feed things
+  #       into run_analysis.R (when not hard-coded) ?????
+  # !!!!! Incomplete
+  {
+    df %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
+    df %<>% mutate(
+      s_1=as.integer(l>=1), s_2=as.integer(l>=2), s_3=as.integer(l>=3),
+      s_4=as.integer(l>=4), s_5=as.integer(l>=5), s_6=as.integer(l>=6),
+      s_7=as.integer(l>=7), s_8=as.integer(l>=8), s_9=as.integer(l>=9),
+      s_10=as.integer(l>=10), s_11=as.integer(l>=11), s_12=as.integer(l>=12),
+      s_13=as.integer(l>=13), s_14=as.integer(l>=14)
+    )
+
+    jags_code <- quote("
+      model {
+        for (a in 1:N) {
+          y[a] ~ dbin(ilogit(beta0 + beta_j_2*j_2[a] + beta_j_3*j_3[a] +
+          beta_j_4*j_4[a] + beta_j_5*j_5[a] + beta_j_6*j_6[a] + beta_j_7*j_7[a] +
+          beta_j_8*j_8[a] + beta_j_9*j_9[a] + beta_j_10*j_10[a] +
+          beta_j_11*j_11[a] + beta_j_12*j_12[a] + beta_j_13*j_13[a] +
+          beta_j_14*j_14[a] + beta_s_1*s_1[a] + beta_s_2*s_2[a] +
+          beta_s_3*s_3[a] + beta_s_4*s_4[a] + beta_s_5*s_5[a] + beta_s_6*s_6[a] +
+          beta_s_7*s_7[a] + beta_s_8*s_8[a] + beta_s_9*s_9[a] +
+          beta_s_10*s_10[a] + beta_s_11*s_11[a] + beta_s_12*s_12[a] +
+          beta_s_13*s_13[a] + beta_s_14*s_14[a] + alpha[i[a]]),
+          n[a])
+        }
+        for (a in 1:I) {
+          alpha[a] ~ dnorm(0, 1/(tau^2))
+        }
+        beta_s_14 <- ifelse(bern_14, 0, exp(alpha_s_14))
+        beta_s_13 <- ifelse(bern_13, 0, exp(alpha_s_13))
+        beta_s_12 <- ifelse(bern_12, 0, exp(alpha_s_12))
+        beta_s_11 <- ifelse(bern_11, 0, exp(alpha_s_11))
+        beta_s_10 <- ifelse(bern_10, 0, exp(alpha_s_10))
+        beta_s_9 <- ifelse(bern_9, 0, exp(alpha_s_9))
+        beta_s_8 <- ifelse(bern_8, 0, exp(alpha_s_8))
+        beta_s_7 <- ifelse(bern_7, 0, exp(alpha_s_7))
+        beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+        beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+        beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+        beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+        beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+        beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
+        alpha_s_14 <- log(10) - e_s_14
+        alpha_s_13 <- log(10) - e_s_13
+        alpha_s_12 <- log(10) - e_s_12
+        alpha_s_11 <- log(10) - e_s_11
+        alpha_s_10 <- log(10) - e_s_10
+        alpha_s_9 <- log(10) - e_s_9
+        alpha_s_8 <- log(10) - e_s_8
+        alpha_s_7 <- log(10) - e_s_7
+        alpha_s_6 <- log(10) - e_s_6
+        alpha_s_5 <- log(10) - e_s_5
+        alpha_s_4 <- log(10) - e_s_4
+        alpha_s_3 <- log(10) - e_s_3
+        alpha_s_2 <- log(10) - e_s_2
+        alpha_s_1 <- log(10) - e_s_1
+        bern_14 ~ dbern(0.1)
+        bern_13 ~ dbern(0.1)
+        bern_12 ~ dbern(0.1)
+        bern_11 ~ dbern(0.1)
+        bern_10 ~ dbern(0.1)
+        bern_9 ~ dbern(0.1)
+        bern_8 ~ dbern(0.1)
+        bern_7 ~ dbern(0.1)
+        bern_6 ~ dbern(0.1)
+        bern_5 ~ dbern(0.1)
+        bern_4 ~ dbern(0.1)
+        bern_3 ~ dbern(0.1)
+        bern_2 ~ dbern(0.1)
+        bern_1 ~ dbern(0.1)
+        e_s_14 ~ dexp(1)
+        e_s_13 ~ dexp(1)
+        e_s_12 ~ dexp(1)
+        e_s_11 ~ dexp(1)
+        e_s_10 ~ dexp(1)
+        e_s_9 ~ dexp(1)
+        e_s_8 ~ dexp(1)
+        e_s_7 ~ dexp(1)
+        e_s_6 ~ dexp(1)
+        e_s_5 ~ dexp(1)
+        e_s_4 ~ dexp(1)
+        e_s_3 ~ dexp(1)
+        e_s_2 ~ dexp(1)
+        e_s_1 ~ dexp(1)
+        beta_j_14 ~ dnorm(0, 1.0E-4)
+        beta_j_13 ~ dnorm(0, 1.0E-4)
+        beta_j_12 ~ dnorm(0, 1.0E-4)
+        beta_j_11 ~ dnorm(0, 1.0E-4)
+        beta_j_10 ~ dnorm(0, 1.0E-4)
+        beta_j_9 ~ dnorm(0, 1.0E-4)
+        beta_j_8 ~ dnorm(0, 1.0E-4)
+        beta_j_7 ~ dnorm(0, 1.0E-4)
+        beta_j_6 ~ dnorm(0, 1.0E-4)
+        beta_j_5 ~ dnorm(0, 1.0E-4)
+        beta_j_4 ~ dnorm(0, 1.0E-4)
+        beta_j_3 ~ dnorm(0, 1.0E-4)
+        beta_j_2 ~ dnorm(0, 1.0E-4)
+        beta0 ~ dnorm(0, 1.0E-4)
+        tau <- 1/sqrt(tau_prec)
+        tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+      }
+    ")
+
+    # jags_code <- quote("
+    #   model {
+    #     for (a in 1:N) {
+    #       y[a] ~ dbin(ilogit(
+    #       beta0 + beta_s_3 + beta_s_4 + beta_s_5 +
+    #       beta_s_6*s_6[a] + beta_s_7
+    #       ), n[a])
+    #     }
+    #     beta_s_7 <- ifelse(bern_7, 0, exp(alpha_s_7))
+    #     beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+    #     beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+    #     beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+    #     beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+    #     alpha_s_7 <- log(10) - e_s_7
+    #     alpha_s_6 <- log(10) - e_s_6
+    #     alpha_s_5 <- log(10) - e_s_5
+    #     alpha_s_4 <- log(10) - e_s_4
+    #     alpha_s_3 <- log(10) - e_s_3
+    #     bern_7 ~ dbern(0.1)
+    #     bern_6 ~ dbern(0.1)
+    #     bern_5 ~ dbern(0.1)
+    #     bern_4 ~ dbern(0.1)
+    #     bern_3 ~ dbern(0.1)
+    #     e_s_7 ~ dexp(1)
+    #     e_s_6 ~ dexp(1)
+    #     e_s_5 ~ dexp(1)
+    #     e_s_4 ~ dexp(1)
+    #     e_s_3 ~ dexp(1)
+    #     beta0 ~ dnorm(0, 1.0E-4)
+    #   }
+    # ")
+
+    # mcmc <- list(n.adapt=100, n.iter=100, n.burn=100, n.chains=1, thin=1)
+    mcmc <- list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3, thin=1)
+    jm <- jags.model(
+      file = textConnection(jags_code),
+      data = list(
+        # N=nrow(df), y=df$y, n=df$n, s_6=df$s_6
+        I=length(unique(df$i)), N=nrow(df), y=df$y, n=df$n,
+        i=df$i, j_2=df$j_2, j_3=df$j_3, j_4=df$j_4,
+        j_5=df$j_5, j_6=df$j_6, j_7=df$j_7, j_8=df$j_8,
+        j_9=df$j_9, j_10=df$j_10, j_11=df$j_11,
+        j_12=df$j_12, j_13=df$j_13, j_14=df$j_14,
+        s_1=df$s_1, s_2=df$s_2, s_3=df$s_3, s_4=df$s_4,
+        s_5=df$s_5, s_6=df$s_6, s_7=df$s_7, s_8=df$s_8,
+        s_9=df$s_9, s_10=df$s_10, s_11=df$s_11,
+        s_12=df$s_12, s_13=df$s_13, s_14=df$s_14
+      ),
+      inits = list(
+        bern_1=1, bern_2=1, bern_3=1, bern_4=1, bern_5=1,
+        bern_6=1, bern_7=1, bern_8=1, bern_9=1, bern_10=1,
+        bern_11=1, bern_12=1, bern_13=1, bern_14=1
+      ),
+      n.chains = mcmc$n.chains,
+      n.adapt = mcmc$n.adapt
+    )
+    update(jm, n.iter = mcmc$n.burn)
+    output <- coda.samples(
+      model = jm,
+      variable.names = c("beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4",
+                         "beta_s_5", "beta_s_6", "beta_s_7", "beta_s_8",
+                         "beta_s_9", "beta_s_10", "beta_s_11", "beta_s_12",
+                         "beta_s_13", "beta_s_14"),
+      n.iter = mcmc$n.iter,
+      thin = mcmc$thin
+    )
+
+    n_samp <- length(output[[1]][,1])
+
+    # Extract beta_s means
+    beta_s_hat <- c()
+    for (i in 1:14) {
+      beta_s_hat[i] <- mean(
+        unlist(lapply(output, function(l) {
+          l[1:n_samp,paste0("beta_s_",i)]
+        })),
+        na.rm = TRUE
+      )
+    }
+
+    # Construct covariance matrix of s terms
+    sigma_s_hat <- matrix(NA, nrow=14, ncol=14)
+    for (i in 1:14) {
+      for (j in 1:14) {
+        sigma_s_hat[i,j] <- cov(
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",i)]})),
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",j)]})),
+          use = "complete.obs"
+        )
+      }
+    }
+
+    # Calculate theta_l_hat vector and sigma_l_hat matrix
+    B = rbind(
+      c(rep(1,1),rep(0,13)),
+      c(rep(1,2),rep(0,12)),
+      c(rep(1,3),rep(0,11)),
+      c(rep(1,4),rep(0,10)),
+      c(rep(1,5),rep(0,9)),
+      c(rep(1,6),rep(0,8)),
+      c(rep(1,7),rep(0,7)),
+      c(rep(1,8),rep(0,6)),
+      c(rep(1,9),rep(0,5)),
+      c(rep(1,10),rep(0,4)),
+      c(rep(1,11),rep(0,3)),
+      c(rep(1,12),rep(0,2)),
+      c(rep(1,13),rep(0,1)),
+      rep(1,14)
+    )
+    theta_l_hat <- B %*% beta_s_hat
+    sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
+    coeffs_mec <- theta_l_hat
+
+  }
+
   # Plot estimates
+  # !!!!! Add pointwise confidence bands
+  # Export: 6" x 4"
+
   ggplot(
     data.frame(
-      x = rep(c(0:14),5),
+      x = rep(c(0:14),6),
       y = c(c(0,coeffs_eti), c(0,coeffs_cub3), c(0,coeffs_cub7),
-            c(0,coeffs_cub9), coeffs_ss),
-      which = rep(c("ETI","CUB3","CUB7","CUB9","SS"), each=15)
+            c(0,coeffs_cub9), c(0,coeffs_ss), c(0,coeffs_ncs)),
+      which = rep(c("ETI","CUB3","CUB7","CUB9","SS","NCS"), each=15)
     ),
     aes(x=x, y=y, color=which)
   ) +
     geom_line() +
-    geom_hline(yintercept=coeff_hh, linetype="longdash") +
+    geom_hline(yintercept=coeff_it, linetype="longdash") +
     labs(y="log(OR)", x="Exposure time", color="Model")
 
   # !!!!! Testing smoothing spline

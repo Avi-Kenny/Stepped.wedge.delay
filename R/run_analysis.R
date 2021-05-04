@@ -2,9 +2,9 @@
 #'
 #' @param data A dataset returned by generate_dataset()
 #' @param data_type Type of data being analyzed ("binomial" or "normal")
-#' @param method A list of the form list(method="HH", enforce=NULL). Method
+#' @param method A list of the form list(method="IT", enforce=NULL). Method
 #'     is one of the following character strings:
-#'       - "HH": Hussey & Hughes; ignores delay
+#'       - "IT": Immediate treatment; ignores delay
 #'       - "ETI": "exposure treatment indicators" model
 #'       - "SS": smoothing spline model
 #'       - "MCMC-SPL": linear spline (ETI) using JAGS
@@ -82,7 +82,7 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
     # Right-hand Riemann sum
     if (R>0) {
-      A <- (1/(J-1)) * matrix(c(rep(1,R-1),J-R))
+      A <- (1/(J-1)) * matrix(c(rep(1,R-1),J-R), nrow=1)
     } else if (R==0) {
       A <- (1/(J-1)) * matrix(rep(1,len), nrow=1)
     }
@@ -92,13 +92,11 @@ run_analysis <- function(data, data_type, method, return_extra) {
       se_ate_hat = sqrt(A %*% sigma_l_hat %*% t(A))[1,1],
       lte_hat = theta_l_hat[len],
       se_lte_hat = sqrt(sigma_l_hat[len,len])
-      # n_kept = NA,  # only relevant for "rejection" method
-      # n_tossed = NA # only relevant for "rejection" method
     ))
 
   }
 
-  if (method$method=="HH") {
+  if (method$method=="IT") {
 
     # Run GLMM
     if (data_type=="normal") {
@@ -115,25 +113,30 @@ run_analysis <- function(data, data_type, method, return_extra) {
     }
 
     # Extract estimates and SEs
-    return (list(
+    res <- list(
       ate_hat = summary(model)$coefficients["x_ij",1],
       se_ate_hat = summary(model)$coefficients["x_ij",2],
       lte_hat = summary(model)$coefficients["x_ij",1],
       se_lte_hat = summary(model)$coefficients["x_ij",2]
-    ))
+    )
+    if (!is.null(return_extra$whole_curve)) {
+      return(c(res,list(
+        theta_1_hat = res$ate_hat,
+        theta_2_hat = res$ate_hat,
+        theta_3_hat = res$ate_hat,
+        theta_4_hat = res$ate_hat,
+        theta_5_hat = res$ate_hat,
+        theta_6_hat = res$ate_hat
+      )))
+    } else {
+      return (res)
+    }
 
   }
 
   if (method$method=="ETI") {
 
     J <- L$n_time_points
-
-    # If n_extra_time_points>0, recode l terms
-    if (data$params$n_extra_time_points>0) {
-      data$data %<>% mutate(
-        l = ifelse(j>J, J-1, l)
-      )
-    }
 
     # If effect_reached>0, recode l terms
     if (method$effect_reached>0) {
@@ -158,6 +161,7 @@ run_analysis <- function(data, data_type, method, return_extra) {
     theta_l_hat <- as.numeric(summary(model)$coefficients[,1])
     sigma_l_hat <- vcov(model)
     indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
+    indices <- indices[1:(length(indices)-data$params$n_extra_time_points)]
     coeff_names <- coeff_names[indices]
     theta_l_hat <- theta_l_hat[indices]
     sigma_l_hat <- sigma_l_hat[indices,indices]
@@ -208,7 +212,9 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
   if (method$method=="CUBIC-4df") {
 
-    # !!!!! INCOMPLETE; TESTING !!!!!
+    # 4 degrees of freedom
+    # 3 knots (2 endpoints + 1 midpoints)
+
     J <- L$n_time_points
     data$data %<>% mutate(
       b1 = l,
@@ -216,10 +222,9 @@ run_analysis <- function(data, data_type, method, return_extra) {
       b3 = l^3,
       b4 = pmax(0,(l-3)^3)
     )
-    formula <- y ~ factor(j) + b1+b2+b3+b4 + (1|i)
+    formula <- y ~ factor(j) + b1 + b2 + b3 + b4 + (1|i)
     model <- lmer(formula, data=data$data)
     coeff_names <- names(summary(model)$coefficients[,1])
-
     b_hat <- as.numeric(summary(model)$coefficients[,1])
     sigma_b_hat <- vcov(model)
     indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,1)=="b"]
@@ -227,7 +232,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
     b_hat <- b_hat[indices]
     sigma_b_hat <- sigma_b_hat[indices,indices]
     sigma_b_hat <- as.matrix(sigma_b_hat)
-
     B <- rbind(
       c(1,1^2,1^3,max(0,(1-3)^3)),
       c(2,2^2,2^3,max(0,(2-3)^3)),
@@ -239,6 +243,141 @@ run_analysis <- function(data, data_type, method, return_extra) {
     theta_l_hat <- as.numeric(B %*% b_hat)
     sigma_l_hat <- B %*% sigma_b_hat %*% t(B)
     return (res(theta_l_hat,sigma_l_hat,method$effect_reached))
+
+  }
+
+  if (method$method=="NCS-4df") {
+
+    # 4 degrees of freedom
+    # 5 knots (2 endpoints + 3 midpoints)
+
+    J <- L$n_time_points
+    ns_basis <- ns(c(0:(J-1)), knots=c((J-1)/4,(2*(J-1))/4,(3*(J-1))/4))
+    data$data$b1 <- ns_basis[data$data$l+1,1]
+    data$data$b2 <- ns_basis[data$data$l+1,2]
+    data$data$b3 <- ns_basis[data$data$l+1,3]
+    data$data$b4 <- ns_basis[data$data$l+1,4]
+    formula <- y ~ factor(j) + b1 + b2 + b3 + b4 + (1|i)
+    model <- lmer(formula, data=data$data)
+    coeff_names <- names(summary(model)$coefficients[,1])
+    b_hat <- as.numeric(summary(model)$coefficients[,1])
+    sigma_b_hat <- vcov(model)
+    indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,1)=="b"]
+    coeff_names <- coeff_names[indices]
+    b_hat <- b_hat[indices]
+    sigma_b_hat <- sigma_b_hat[indices,indices]
+    sigma_b_hat <- as.matrix(sigma_b_hat)
+    B <- matrix(NA, nrow=(J-1), ncol=4)
+    for (i in 1:(J-1)) {
+      for (j in 1:4) {
+        B[i,j] <- ns_basis[i+1,j]
+      }
+    }
+    theta_l_hat <- as.numeric(B %*% b_hat)
+    sigma_l_hat <- B %*% sigma_b_hat %*% t(B)
+
+    res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
+    if (!is.null(return_extra$whole_curve)) {
+      return(c(res,list(
+        theta_1_hat = theta_l_hat[1],
+        theta_2_hat = theta_l_hat[2],
+        theta_3_hat = theta_l_hat[3],
+        theta_4_hat = theta_l_hat[4],
+        theta_5_hat = theta_l_hat[5],
+        theta_6_hat = theta_l_hat[6]
+      )))
+    } else {
+      return (res)
+    }
+
+  }
+
+  if (method$method=="NCS-3df") {
+
+    # 3 degrees of freedom
+    # 4 knots (2 endpoints + 2 midpoints)
+
+    J <- L$n_time_points
+    ns_basis <- ns(c(0:(J-1)), knots=c((J-1)/3,(2*(J-1))/3))
+    data$data$b1 <- ns_basis[data$data$l+1,1]
+    data$data$b2 <- ns_basis[data$data$l+1,2]
+    data$data$b3 <- ns_basis[data$data$l+1,3]
+    formula <- y ~ factor(j) + b1 + b2 + b3 + (1|i)
+    model <- lmer(formula, data=data$data)
+    coeff_names <- names(summary(model)$coefficients[,1])
+    b_hat <- as.numeric(summary(model)$coefficients[,1])
+    sigma_b_hat <- vcov(model)
+    indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,1)=="b"]
+    coeff_names <- coeff_names[indices]
+    b_hat <- b_hat[indices]
+    sigma_b_hat <- sigma_b_hat[indices,indices]
+    sigma_b_hat <- as.matrix(sigma_b_hat)
+    B <- matrix(NA, nrow=(J-1), ncol=3)
+    for (i in 1:(J-1)) {
+      for (j in 1:3) {
+        B[i,j] <- ns_basis[i+1,j]
+      }
+    }
+    theta_l_hat <- as.numeric(B %*% b_hat)
+    sigma_l_hat <- B %*% sigma_b_hat %*% t(B)
+
+    res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
+    if (!is.null(return_extra$whole_curve)) {
+      return(c(res,list(
+        theta_1_hat = theta_l_hat[1],
+        theta_2_hat = theta_l_hat[2],
+        theta_3_hat = theta_l_hat[3],
+        theta_4_hat = theta_l_hat[4],
+        theta_5_hat = theta_l_hat[5],
+        theta_6_hat = theta_l_hat[6]
+      )))
+    } else {
+      return (res)
+    }
+
+  }
+
+  if (method$method=="NCS-2df") {
+
+    # 3 degrees of freedom
+    # 4 knots (2 endpoints + 2 midpoints)
+
+    J <- L$n_time_points
+    ns_basis <- ns(c(0:(J-1)), knots=c((J-1)/2))
+    data$data$b1 <- ns_basis[data$data$l+1,1]
+    data$data$b2 <- ns_basis[data$data$l+1,2]
+    formula <- y ~ factor(j) + b1 + b2 + (1|i)
+    model <- lmer(formula, data=data$data)
+    coeff_names <- names(summary(model)$coefficients[,1])
+    b_hat <- as.numeric(summary(model)$coefficients[,1])
+    sigma_b_hat <- vcov(model)
+    indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,1)=="b"]
+    coeff_names <- coeff_names[indices]
+    b_hat <- b_hat[indices]
+    sigma_b_hat <- sigma_b_hat[indices,indices]
+    sigma_b_hat <- as.matrix(sigma_b_hat)
+    B <- matrix(NA, nrow=(J-1), ncol=2)
+    for (i in 1:(J-1)) {
+      for (j in 1:2) {
+        B[i,j] <- ns_basis[i+1,j]
+      }
+    }
+    theta_l_hat <- as.numeric(B %*% b_hat)
+    sigma_l_hat <- B %*% sigma_b_hat %*% t(B)
+
+    res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
+    if (!is.null(return_extra$whole_curve)) {
+      return(c(res,list(
+        theta_1_hat = theta_l_hat[1],
+        theta_2_hat = theta_l_hat[2],
+        theta_3_hat = theta_l_hat[3],
+        theta_4_hat = theta_l_hat[4],
+        theta_5_hat = theta_l_hat[5],
+        theta_6_hat = theta_l_hat[6]
+      )))
+    } else {
+      return (res)
+    }
 
   }
 
@@ -442,25 +581,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
       n.iter = mcmc$n.iter,
       thin = mcmc$thin
     )
-
-    # MCMC diagnostics
-    if (FALSE) {
-      n_samp <- length(output[[1]][,1])
-      var <- "beta_s_6" # beta0 tau
-      c1 <- output[[1]][1:n_samp,var]
-      c2 <- output[[2]][1:n_samp,var]
-      c3 <- output[[3]][1:n_samp,var]
-      c4 <- output[[4]][1:n_samp,var]
-      ggplot(
-        data.frame(
-          x = rep(c(1:n_samp),4),
-          y = c(c1,c2,c3,c4),
-          chain = rep(c(1:4), each=n_samp)
-        ),
-        aes(x=x, y=y, color=factor(chain))) +
-        geom_line() +
-        labs(title=var)
-    }
 
     # Extract beta_s means
     beta_s_hat <- c()
@@ -1074,6 +1194,178 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
     }
 
+    if (method$enforce=="exp; mix prior v2") {
+
+      jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
+          alpha_s_6 <- log(10) - e_s_6
+          alpha_s_5 <- log(10) - e_s_5
+          alpha_s_4 <- log(10) - e_s_4
+          alpha_s_3 <- log(10) - e_s_3
+          alpha_s_2 <- log(10) - e_s_2
+          alpha_s_1 <- log(10) - e_s_1
+          bern_6 ~ dbern(p)
+          bern_5 ~ dbern(p)
+          bern_4 ~ dbern(p)
+          bern_3 ~ dbern(p)
+          bern_2 ~ dbern(p)
+          bern_1 ~ dbern(p)
+          e_s_6 ~ dexp(1)
+          e_s_5 ~ dexp(1)
+          e_s_4 ~ dexp(1)
+          e_s_3 ~ dexp(1)
+          e_s_2 ~ dexp(1)
+          e_s_1 ~ dexp(1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+          p ~ dunif(0,1)
+        }
+      ")
+
+    }
+
+    if (method$enforce=="exp; mix prior v2b") {
+
+      jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
+          alpha_s_6 <- log(10) - e_s_6
+          alpha_s_5 <- log(10) - e_s_5
+          alpha_s_4 <- log(10) - e_s_4
+          alpha_s_3 <- log(10) - e_s_3
+          alpha_s_2 <- log(10) - e_s_2
+          alpha_s_1 <- log(10) - e_s_1
+          bern_6 ~ dbern(p6)
+          bern_5 ~ dbern(p5)
+          bern_4 ~ dbern(p4)
+          bern_3 ~ dbern(p3)
+          bern_2 ~ dbern(p2)
+          bern_1 ~ dbern(p1)
+          e_s_6 ~ dexp(1)
+          e_s_5 ~ dexp(1)
+          e_s_4 ~ dexp(1)
+          e_s_3 ~ dexp(1)
+          e_s_2 ~ dexp(1)
+          e_s_1 ~ dexp(1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+          p6 ~ dunif(0,1)
+          p5 ~ dunif(0,1)
+          p4 ~ dunif(0,1)
+          p3 ~ dunif(0,1)
+          p2 ~ dunif(0,1)
+          p1 ~ dunif(0,1)
+        }
+      ")
+
+    }
+
+    if (method$enforce=="exp; mix prior v3") {
+
+      jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + dir*(beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n]) + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
+          alpha_s_6 <- log(10) - e_s_6
+          alpha_s_5 <- log(10) - e_s_5
+          alpha_s_4 <- log(10) - e_s_4
+          alpha_s_3 <- log(10) - e_s_3
+          alpha_s_2 <- log(10) - e_s_2
+          alpha_s_1 <- log(10) - e_s_1
+          bern_6 ~ dbern(p)
+          bern_5 ~ dbern(p)
+          bern_4 ~ dbern(p)
+          bern_3 ~ dbern(p)
+          bern_2 ~ dbern(p)
+          bern_1 ~ dbern(p)
+          e_s_6 ~ dexp(1)
+          e_s_5 ~ dexp(1)
+          e_s_4 ~ dexp(1)
+          e_s_3 ~ dexp(1)
+          e_s_2 ~ dexp(1)
+          e_s_1 ~ dexp(1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+          p ~ dunif(0,1)
+          dir <- ifelse(bern_0, 1, -1)
+          bern_0 ~ dbern(0.5)
+        }
+      ")
+
+    }
+
     if (method$enforce=="exp; mix prior 0.2") {
 
       jags_code <- quote("
@@ -1335,6 +1627,7 @@ run_analysis <- function(data, data_type, method, return_extra) {
     output <- coda.samples(
       model = jm,
       variable.names = c("beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4",
+                         # "beta_s_5", "beta_s_6", "p"),
                          "beta_s_5", "beta_s_6"),
       n.iter = mcmc$n.iter,
       thin = mcmc$thin
@@ -1342,29 +1635,21 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
     n_samp <- length(output[[1]][,1])
 
-    if (method$enforce=="rejection") {
-
-      # Throw out samples that don't satisfy parameter constraints
-      # tol=0.2:  616/1,000 kept
-      # tol=0.1:  105/1,000 kept
-      # tol=0.05: 18/1,000 kept
-      # output=o
-      n_kept <- 0
-      n_tossed <- 0
-      for (i in 1:mcmc$n.chains) {
-        for (j in 1:n_samp) {
-          if (max(output[[i]][j,])>method$tolerance) {
-            output[[i]][j,] <- NA
-            n_tossed <- n_tossed + 1
-          } else {
-            n_kept <- n_kept + 1
-          }
-        }
-      }
-      if (n_kept==0) {
-        stop("No posterior samples were kept")
-      }
-
+    # MCMC diagnostics
+    if (FALSE) {
+      n_samp <- length(output[[1]][,1])
+      var <- "beta_s_6"
+      c1 <- output[[1]][1:n_samp,var]
+      c2 <- output[[2]][1:n_samp,var]
+      ggplot(
+        data.frame(
+          x = rep(c(1:n_samp),2),
+          y = c(c1,c2),
+          chain = rep(c(1:2), each=n_samp)
+        ),
+        aes(x=x, y=y, color=factor(chain))) +
+        geom_line() +
+        labs(title=var)
     }
 
     # Extract beta_s means
@@ -1403,10 +1688,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
     sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
 
     res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
-    if (method$enforce=="rejection") {
-      res$n_kept <- n_kept
-      res$n_tossed <- n_tossed
-    }
 
     if (is.null(return_extra$whole_curve)) {
       return (res)
