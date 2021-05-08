@@ -1,3 +1,77 @@
+###############################################.
+##### Old methods from real data analysis #####
+###############################################.
+
+# Cubic spline (3df)
+df %<>% mutate(
+  c1 = l,
+  c2 = l^2,
+  c3 = l^3
+)
+model_cube3 <- glmmTMB(
+  cbind(y,n-y) ~ factor(j) + c1+c2+c3 + (1|i),
+  data = df,
+  family = "binomial"
+)
+mb <- as.numeric(summary(model_cube3)$coefficients$cond[,1][16:18])
+delta_cub3 <- sapply(c(1:14), function(l) {
+  mb[1]*l + mb[2]*l^2 + mb[3]*l^3
+})
+
+# Cubic spline (7df)
+df %<>% mutate(
+  c4 = pmax(0,(l-1*(14/5))^3),
+  c5 = pmax(0,(l-2*(14/5))^3),
+  c6 = pmax(0,(l-3*(14/5))^3),
+  c7 = pmax(0,(l-4*(14/5))^3)
+)
+model_cube7 <- glmmTMB(
+  cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5+c6+c7 + (1|i),
+  data = df,
+  family = "binomial"
+)
+mb <- as.numeric(summary(model_cube7)$coefficients$cond[,1][16:22])
+delta_cub7 <- sapply(c(1:14), function(l) {
+  mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*pmax(0,(l-1*(14/5))^3) +
+    mb[5]*pmax(0,(l-2*(14/5))^3) + mb[6]*pmax(0,(l-3*(14/5))^3) +
+    mb[7]*pmax(0,(l-4*(14/5))^3)
+})
+
+# Cubic spline (9df)
+df %<>% mutate(
+  c4 = pmax(0,(l-1*(14/7))^3),
+  c5 = pmax(0,(l-2*(14/7))^3),
+  c6 = pmax(0,(l-3*(14/7))^3),
+  c7 = pmax(0,(l-4*(14/7))^3),
+  c8 = pmax(0,(l-5*(14/7))^3),
+  c9 = pmax(0,(l-6*(14/7))^3)
+)
+model_cube9 <- glmmTMB(
+  cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5+c6+c7+c8+c9 + (1|i),
+  data = df,
+  family = "binomial"
+)
+mb <- as.numeric(summary(model_cube9)$coefficients$cond[,1][16:24])
+delta_cub9 <- sapply(c(1:14), function(l) {
+  mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*pmax(0,(l-1*(14/7))^3) +
+    mb[5]*pmax(0,(l-2*(14/7))^3) + mb[6]*pmax(0,(l-3*(14/7))^3) +
+    mb[7]*pmax(0,(l-4*(14/7))^3) + mb[8]*pmax(0,(l-5*(14/7))^3) +
+    mb[9]*pmax(0,(l-6*(14/7))^3)
+})
+
+# Smoothing spline
+n_knots <- length(unique(df$l))
+model_ss <- gamm(
+  cbind(y,n-y) ~ factor(j) + s(l, k=n_knots, fx=FALSE, bs="cr", m=c(3,2), pc=0),
+  random = list(i=~1),
+  data = df,
+  family = "binomial"
+)
+delta_ss <- sapply(c(1:(n_knots-1)), function(l) {
+  predict(model_ss$gam, newdata=list(j=1, l=l), type="terms")[2]
+})
+
+
 
 ###########################################.
 ##### Old methods from run_analysis() #####

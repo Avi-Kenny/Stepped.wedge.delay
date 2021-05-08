@@ -11,13 +11,14 @@
 cfg <- list(
   level_set_which = "level_set_123",
   run_or_update = "run",
-  num_sim = 500,
+  num_sim = 1000,
   pkgs = c("dplyr", "stringr", "lme4", "rjags", "Iso", "sqldf", "mgcv", "MASS",
-           "fastDummies", "car", "splines"),
-  pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales"), # devtools::install_github("zeehio/facetscales")
+           "fastDummies", "car", "splines", "glmmTMB"),
+  pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales", "glmmTMB"), # devtools::install_github("zeehio/facetscales")
   parallel = "none",
   stop_at_error = FALSE,
-  mcmc = list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3, thin=1)
+  mcmc = list(n.adapt=1000, n.iter=1000, n.burn=1000, n.chains=2, thin=1)
+  # mcmc = list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3, thin=1)
 )
 
 # Set cluster config
@@ -214,9 +215,9 @@ if (run_main) {
       # "MCMC-STEP (exp; mix prior 0.2)" = list(method="MCMC-STEP-MON",enforce="exp; mix prior 0.2")
     }
 
-    # Simulation 1: dangers of "immediate treatment" model
-    # Simulation 2: comparing all methods
-    # Simulation 3: estimation of the entire curve
+    # Simulation 1: pitfalls of the immediate treatment (IT) model
+    # Simulation 2: estimation of the TATE and LTE
+    # Simulation 3: estimation of the entire effect curve
     # 16 level combos
     level_set_123 <- list(
       n_clusters = 24,
@@ -227,21 +228,21 @@ if (run_main) {
       sigma = 2,
       data_type = "normal",
       method = list(
-        # "IT" = list(method="IT"),
-        # "ETI" = list(method="ETI"),
-        # "NCS (4df)" = list(method="NCS-4df"),
-        # "MEC (P=0.1)" = list(
-        #   method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
-        #   mcmc = cfg$mcmc),
+        "IT" = list(method="IT"),
+        "ETI" = list(method="ETI"),
+        "NCS (4df)" = list(method="NCS-4df"),
+        "MEC (P=0.1)" = list(
+          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
+          mcmc = cfg$mcmc)
         # "MEC (v2)" = list(
         #   method = "MCMC-STEP-MON", enforce="exp; mix prior v2",
         #   mcmc = cfg$mcmc),
         # "MEC (v3)" = list(
         #   method = "MCMC-STEP-MON", enforce="exp; mix prior v3",
         #   mcmc = cfg$mcmc)
-        "MEC (v2b)" = list(
-          method = "MCMC-STEP-MON", enforce="exp; mix prior v2b",
-          mcmc = cfg$mcmc)
+        # "MEC (v2b)" = list(
+        #   method = "MCMC-STEP-MON", enforce="exp; mix prior v2b",
+        #   mcmc = cfg$mcmc)
       ),
       delay_model = delay_models,
       n_extra_time_points = 0,
@@ -273,7 +274,31 @@ if (run_main) {
       return_extra = list("none"=list())
     )
 
-    # Simulation 5: effect_reached
+    # Simulation 4b: power of Wald-type hypothesis tests
+    # 80 level combos
+    level_set_4b <- list(
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = seq(10,50,10),
+      theta = 0.5,
+      tau = 1,
+      sigma = 2,
+      data_type = "normal",
+      method = list(
+        "IT" = list(method="IT"),
+        "ETI" = list(method="ETI"),
+        "NCS (4df)" = list(method="NCS-4df"),
+        "MEC (P=0.1)" = list(
+          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
+          mcmc = cfg$mcmc)
+      ),
+      delay_model = delay_models,
+      n_extra_time_points = 0,
+      rte = NA,
+      return_extra = list("none"=list())
+    )
+
+    # Simulation 5: performance of RETI models
     # 12 level combos
     level_set_5 <- list(
       n_clusters = 24,
@@ -294,39 +319,38 @@ if (run_main) {
       return_extra = list("none"=list())
     )
 
-    # Simulation 6: random treatment effects
-    level_set_6 <- list(
+    # Simulation 6: performance of RTE models; data are generated with no RTEs
+    # Simulation 7: performance of RTE models; data are generated with RTEs
+    level_set_67 <- list(
       n_clusters = 24,
       n_time_points = 7,
-      n_ind_per_cluster = 20,
+      n_ind_per_cluster = 50,
       theta = 0.5,
-      tau = 0.5,
-      sigma = 0.2,
+      tau = 1,
+      sigma = 2,
       data_type = "normal",
       method = list(
         "ETI" = list(method="ETI"),
-        # "ETI (RTE; height)" = list(method="ETI", re="height"),
-        "ETI (RTE MCMC; height)"=list(
-          method = "MCMC-RTE-height",
-          mcmc = cfg$mcmc),
+        "ETI (RTE; height)" = list(method="ETI", re="height"),
+        # "ETI (RTE MCMC; height)"=list(
+        #   method = "MCMC-RTE-height",
+        #   mcmc = cfg$mcmc),
         "ETI (RTE MCMC; height+shape)" = list(
           method = "MCMC-RTE-height+shape",
           mcmc = cfg$mcmc)
       ),
       delay_model = delay_models,
-      # delay_model = list("Curved"=list(type="exp",params=list(d=1.5))),
       n_extra_time_points = 0,
       rte = list(
-        # "none" = NA,
-        # "height" = list(type="height", nu=0.4, rho=-0.2),
-        "height+shape" = list(type="height+shape", nu=0.4, rho1=-0.2, rho2=0.5)
+        "none" = NA,
+        "height+shape" = list(type="height+shape", nu=1, rho1=-0.2, rho2=0.5) # "height" = list(type="height", nu=1, rho=-0.2)
       ),
       return_extra = list("rte"=list(rte=TRUE))
     )
 
-    # Simulation 7: n_extra_time_points
+    # Simulation 8: Simulation results: effect of adding extra time points
     # 12 level combos
-    level_set_7 <- list(
+    level_set_8 <- list(
       n_clusters = 24,
       n_time_points = 7,
       n_ind_per_cluster = 50,
@@ -398,8 +422,8 @@ if (run_main) {
       },
 
       last = {
-        sim %>% summary() %>% print()
-        # sim$results %>% print()
+        # sim %>% summary() %>% print()
+        sim$results %>% head() %>% print()
         sim$errors %>% print()
       },
 
@@ -441,11 +465,10 @@ if (run_main) {
 if (run_process_results) {
 
   # Set simulation
-  whichsim <- 2
+  whichsim <- 3
 
   # Read in simulation object
-  sim <- readRDS("../simba.out/sim123_20210501.simba")
-  # sim <- readRDS("../simba.out/sim4_20210501.simba")
+  sim <- readRDS("../simba.out/sim123_20210506.simba")
 
   # Generate true TATE values
   sim$results %<>% mutate(
@@ -496,7 +519,6 @@ if (run_process_results) {
         (theta_1_hat-theta_1)^2+(theta_2_hat-theta_2)^2+(theta_3_hat-theta_3)^2+
           (theta_4_hat-theta_4)^2+(theta_5_hat-theta_5)^2+(theta_6_hat-theta_6)^2
       )
-      # pbias_wc = (1/6) * ((theta_1_hat-theta_1)/theta_1+(theta_2_hat-theta_2)/theta_2+(theta_3_hat-theta_3)/theta_3+(theta_4_hat-theta_4)/theta_4+(theta_5_hat-theta_5)/theta_5+(theta_6_hat-theta_6)/theta_6)
     )
 
     summ_mean <- list(
@@ -548,20 +570,18 @@ if (run_process_results) {
       delay_model=="Partially convex" ~ s_d_models[4]
     )
   )
+  s_methods <- unique(sim$results$method)
   if (whichsim==1) {
-    s_methods <- c("IT", "ETI")
     summ %<>% filter(method %in% c("IT","ETI"))
-  } else if (whichsim %in% c(2,3)) {
-    s_methods <- c("ETI", "NCS (4df)", "MEC (P=0.1)")
+  }
+  if (whichsim %in% c(2,3)) {
     summ %<>% filter(method!="IT")
-  } else if (whichsim==4) {
-    s_methods <- c("IT", "ETI", "NCS (4df)", "MEC (P=0.1)")
-  } else if (whichsim==5) {
-    s_methods <- c("ETI", "RETI (4 steps)", "RETI (3 steps)")
-  } else if (whichsim==6) {
-    # !!!!! TO DO
-  } else if (whichsim==7) {
-    s_methods <- "ETI"
+  }
+  if (whichsim==6) {
+    summ %<>% filter(rte=="none")
+  }
+  if (whichsim==7) {
+    summ %<>% filter(rte=="height") # !!!!! height+shape
   }
   summ %<>% mutate(
     method = factor(method, levels=s_methods),
@@ -603,6 +623,8 @@ if (run_process_results) {
     # `NCS-4df` = cb_colors[5],
     `RETI (3 steps)` = cb_colors[6],
     `RETI (4 steps)` = cb_colors[7],
+    `ETI (RTE; height)` = cb_colors[6],
+    `ETI (RTE; height+shape)` = cb_colors[7],
     `0` = cb_colors[4],
     `1` = cb_colors[7],
     `2` = cb_colors[6]
@@ -613,9 +635,9 @@ if (run_process_results) {
 
 
 
-#############################################.
-##### VIZ: Figure for simulations 1,2,5 #####
-#############################################.
+###############################################.
+##### VIZ: Figure for simulations 1-2,5-7 #####
+###############################################.
 
 if (run_viz) {
 
@@ -639,6 +661,32 @@ if (run_viz) {
     theme(legend.position="bottom") +
     scale_fill_manual(values=m_colors) +
     labs(y=NULL, x=NULL, fill="Analysis model")
+
+}
+
+
+
+########################################.
+##### VIZ: Figure for simulation 3 #####
+########################################.
+
+if (run_viz) {
+
+  # Export: 8: x 3"
+  ggplot(
+    summ,
+    aes(x=Method, y=mse_wc, fill=Method) # x=which,
+  ) +
+    geom_bar(stat="identity", position=position_dodge(),
+             width=0.8, color="white", size=0.35) +
+    facet_grid(cols=vars(delay_model)) +
+    theme(
+      legend.position="bottom",
+      axis.ticks.x=element_blank(),
+      axis.text.x=element_blank()
+    ) +
+    scale_fill_manual(values=m_colors) +
+    labs(y="Average pointwise MSE", x=NULL, fill="Analysis model")
 
 }
 
@@ -677,7 +725,7 @@ if (run_viz) {
 
 
 ########################################.
-##### VIZ: Figure for simulation 7 #####
+##### VIZ: Figure for simulation 8 #####
 ########################################.
 
 if (run_viz) {
@@ -702,32 +750,6 @@ if (run_viz) {
     theme(legend.position="bottom") +
     scale_fill_manual(values=m_colors) +
     labs(y=NULL, x=NULL, fill="Extra time points")
-
-}
-
-
-
-##############################################.
-##### VIZ: Figure (2nd) for simulation 6 #####
-##############################################.
-
-if (run_viz) {
-
-  # Export: 8: x 4"
-  ggplot(
-    summ,
-    aes(x=Method, y=mse_wc, fill=Method) # x=which,
-  ) +
-    geom_bar(stat="identity", position=position_dodge(),
-             width=0.8, color="white", size=0.35) +
-    facet_grid(cols=vars(delay_model)) +
-    theme(
-      legend.position="bottom",
-      axis.ticks.x=element_blank(),
-      axis.text.x=element_blank()
-    ) +
-    scale_fill_manual(values=m_colors) +
-    labs(y="MSE", x=NULL, fill="Analysis model")
 
 }
 
@@ -1245,11 +1267,6 @@ if (run_viz) {
 
 if (run_realdata) {
 
-  library(glmmTMB)
-
-  # !!!!! Also plot time trend estimates (with CI)
-  # !!!!! model time trend with spline
-
   # Read/process data
   df <- read.csv("../realdata/wa_state.csv")
   df %<>% rename(
@@ -1265,133 +1282,122 @@ if (run_realdata) {
     n = n(),
     y = sum(y)
   )
-
-  # IT model
-  model_it <- glmer(
-    cbind(y,n-y) ~ factor(j) + x_ij + (1|i),
-    data = df,
-    family = "binomial"
-  )
-  coeff_it <- summary(model_it)$coefficients["x_ij","Estimate"]
-
-  # ETI model
-  model_eti <- glmmTMB(
-    cbind(y,n-y) ~ factor(j) + factor(l) + (1|i),
-    data = df,
-    family = "binomial"
-  )
-  coeffs_eti <- as.numeric(summary(model_eti)$coefficients$cond[,1][16:29])
-
-  # Cubic spline (3df)
   df %<>% mutate(
-    c1 = l,
-    c2 = l^2,
-    c3 = l^3
+    j = j+1
   )
-  model_cube3 <- glmmTMB(
-    cbind(y,n-y) ~ factor(j) + c1+c2+c3 + (1|i),
-    data = df,
-    family = "binomial"
-  )
-  mb <- as.numeric(summary(model_cube3)$coefficients$cond[,1][16:18])
-  coeffs_cub3 <- sapply(c(1:14), function(l) {
-    mb[1]*l + mb[2]*l^2 + mb[3]*l^3
-  })
 
-  # Cubic spline (7df)
-  df %<>% mutate(
-    c4 = pmax(0,(l-1*(14/5))^3),
-    c5 = pmax(0,(l-2*(14/5))^3),
-    c6 = pmax(0,(l-3*(14/5))^3),
-    c7 = pmax(0,(l-4*(14/5))^3)
-  )
-  model_cube7 <- glmmTMB(
-    cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5+c6+c7 + (1|i),
-    data = df,
-    family = "binomial"
-  )
-  mb <- as.numeric(summary(model_cube7)$coefficients$cond[,1][16:22])
-  coeffs_cub7 <- sapply(c(1:14), function(l) {
-    mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*pmax(0,(l-1*(14/5))^3) +
-      mb[5]*pmax(0,(l-2*(14/5))^3) + mb[6]*pmax(0,(l-3*(14/5))^3) +
-      mb[7]*pmax(0,(l-4*(14/5))^3)
-  })
+  # Helper function to extract estimates
+  # type is one of c("IT","ETI", "NCS")
+  est <- function(model, type, trend) {
 
-  # Cubic spline (9df)
-  df %<>% mutate(
-    c4 = pmax(0,(l-1*(14/7))^3),
-    c5 = pmax(0,(l-2*(14/7))^3),
-    c6 = pmax(0,(l-3*(14/7))^3),
-    c7 = pmax(0,(l-4*(14/7))^3),
-    c8 = pmax(0,(l-5*(14/7))^3),
-    c9 = pmax(0,(l-6*(14/7))^3)
-  )
-  model_cube9 <- glmmTMB(
-    cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5+c6+c7+c8+c9 + (1|i),
-    data = df,
-    family = "binomial"
-  )
-  mb <- as.numeric(summary(model_cube9)$coefficients$cond[,1][16:24])
-  coeffs_cub9 <- sapply(c(1:14), function(l) {
-    mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*pmax(0,(l-1*(14/7))^3) +
-      mb[5]*pmax(0,(l-2*(14/7))^3) + mb[6]*pmax(0,(l-3*(14/7))^3) +
-      mb[7]*pmax(0,(l-4*(14/7))^3) + mb[8]*pmax(0,(l-5*(14/7))^3) +
-      mb[9]*pmax(0,(l-6*(14/7))^3)
-  })
+    ind <- ifelse(trend=="cat", 16, 5)
+    J <- 15
 
-  # Smoothing spline
-  n_knots <- length(unique(df$l))
-  model_ss <- gamm(
-    cbind(y,n-y) ~ factor(j) + s(l, k=n_knots, fx=FALSE, bs="cr", m=c(3,2), pc=0),
-    random = list(i=~1),
-    data = df,
-    family = "binomial"
-  )
-  coeffs_ss <- sapply(c(1:(n_knots-1)), function(l) {
-    predict(model_ss$gam, newdata=list(j=1, l=l), type="terms")[2]
-  })
-
-  # Natural cubic spline
-  ns_basis <- ns(c(0:14), knots=c(14/4,(2*14)/4,(3*14)/4))
-  df$c1 <- ns_basis[df$l+1,1]
-  df$c2 <- ns_basis[df$l+1,2]
-  df$c3 <- ns_basis[df$l+1,3]
-  df$c4 <- ns_basis[df$l+1,4]
-  model_ncs <- glmmTMB(
-    cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4 + (1|i),
-    data = df,
-    family = "binomial"
-  )
-  mb <- as.numeric(summary(model_ncs)$coefficients$cond[,1][16:19])
-  coeffs_ncs <- as.numeric(sapply(c(1:14), function(l) {
-    mb[1]*ns_basis[l+1,1] + mb[2]*ns_basis[l+1,2] +
-    mb[3]*ns_basis[l+1,3] + mb[4]*ns_basis[l+1,4]
-  }))
-
-  B <- matrix(NA, nrow=14, ncol=4)
-  for (i in 1:14) {
-    for (j in 1:4) {
-      B[i,j] <- ns_basis[i+1,j]
+    # Extract treatment effect estimates
+    {
+      if (type=="IT") {
+        delta <- as.numeric(summary(model)$coefficients$cond[,1]["x_ij"])
+        se <- as.numeric(sqrt(diag(summary(model)$vcov[[1]])["x_ij"]))
+        delta <- rep(delta,14)
+        se <- rep(se,14)
+      } else if (type=="ETI") {
+        delta <- as.numeric(summary(model)$coefficients$cond[,1][ind:(ind+13)])
+        se <- as.numeric(sqrt(diag(summary(model)$vcov[[1]])[ind:(ind+13)]))
+      } else if (type=="NCS") {
+        ns_basis <- ns(c(0:(J-1)), knots=c((J-1)/4,(2*(J-1))/4,(3*(J-1))/4))
+        b_hat <- as.numeric(summary(model)$coefficients$cond[,1][ind:(ind+3)])
+        sigma_b_hat <- summary(model)$vcov[[1]][ind:(ind+3),ind:(ind+3)]
+        B <- matrix(NA, nrow=14, ncol=4)
+        for (i in 1:14) { for (j in 1:4) { B[i,j] <- ns_basis[i+1,j] }}
+        delta <- as.numeric(B %*% b_hat)
+        vcov <- B %*% sigma_b_hat %*% t(B)
+        se <- sqrt(diag(vcov))
+      }
+      delta <- c(0,delta)
+      se <- c(0,se)
     }
+
+    # Calculate treatment effect CIs
+    ci_l <- delta-1.96*se
+    ci_u <- delta+1.96*se
+
+    # Calculate time trend estimates and CIs
+    if (trend=="cat") {
+      time <- c(0,as.numeric(summary(model)$coefficients$cond[,1][2:15]))
+      se2 <- c(0,as.numeric(sqrt(diag(summary(model)$vcov[[1]])[2:15])))
+      ci2_l <- time-1.96*se2
+      ci2_u <- time+1.96*se2
+    } else {
+      ns_basis2 <- ns(c(1:J), knots=c(J/4,(2*J)/4,(3*J)/4))
+      t_hat <- as.numeric(summary(model)$coefficients$cond[,1][2:5])
+      sigma_t_hat <- summary(model)$vcov[[1]][2:5,2:5]
+      B <- matrix(NA, nrow=14, ncol=4)
+      for (i in 1:14) { for (j in 1:4) { B[i,j] <- ns_basis[i+1,j] }}
+      time <- c(0,as.numeric(B %*% t_hat))
+      vcov <- B %*% sigma_t_hat %*% t(B)
+      se2 <- c(0,sqrt(diag(vcov)))
+      ci2_l <- time-1.96*se2
+      ci2_u <- time+1.96*se2
+    }
+
+    return(list(delta=delta, ci_l=ci_l, ci_u=ci_u,
+                time=time, ci2_l=ci2_l, ci2_u=ci2_u))
+
   }
-  theta_l_hat <- as.numeric(B %*% mb)
-  coeffs_ncs <- theta_l_hat
 
-  # Monotone Effect Curve Bayesian model (P=0.1)
-  # !!!!! Refactor some of this section so that I can just feed things
-  #       into run_analysis.R (when not hard-coded) ?????
-  # !!!!! Incomplete
+  # Run models with time as categorical
   {
-    df %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
-    df %<>% mutate(
-      s_1=as.integer(l>=1), s_2=as.integer(l>=2), s_3=as.integer(l>=3),
-      s_4=as.integer(l>=4), s_5=as.integer(l>=5), s_6=as.integer(l>=6),
-      s_7=as.integer(l>=7), s_8=as.integer(l>=8), s_9=as.integer(l>=9),
-      s_10=as.integer(l>=10), s_11=as.integer(l>=11), s_12=as.integer(l>=12),
-      s_13=as.integer(l>=13), s_14=as.integer(l>=14)
+    # IT model
+    model_it <- glmmTMB(
+      cbind(y,n-y) ~ factor(j) + x_ij + (1|i),
+      data = df,
+      family = "binomial"
     )
+    est_it <- est(model_it, "IT", "cat")
 
-    jags_code <- quote("
+    # ETI model
+    model_eti <- glmmTMB(
+      cbind(y,n-y) ~ factor(j) + factor(l) + (1|i),
+      data = df,
+      family = "binomial"
+    )
+    est_eti <- est(model_eti, "ETI", "cat")
+
+    # ETI (RTE; height) model
+    model_rte <- glmmTMB(
+      cbind(y,n-y) ~ factor(j) + factor(l) + (x_ij|i),
+      data = df,
+      family = "binomial"
+    )
+    est_rte <- est(model_rte, "ETI", "cat")
+
+    # Natural cubic spline (4df)
+    J <- 15
+    ns_basis <- ns(c(0:(J-1)), knots=c((J-1)/4,(2*(J-1))/4,(3*(J-1))/4))
+    df$c1 <- ns_basis[df$l+1,1]
+    df$c2 <- ns_basis[df$l+1,2]
+    df$c3 <- ns_basis[df$l+1,3]
+    df$c4 <- ns_basis[df$l+1,4]
+    model_ncs <- glmmTMB(
+      cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4 + (1|i),
+      data = df,
+      family = "binomial"
+    )
+    est_ncs <- est(model_ncs, "NCS", "cat")
+
+    # Monotone Effect Curve Bayesian model (P=0.1)
+    # !!!!! Incomplete
+    if (FALSE) {
+      df %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
+      df %<>% mutate(
+        s_1=as.integer(l>=1), s_2=as.integer(l>=2), s_3=as.integer(l>=3),
+        s_4=as.integer(l>=4), s_5=as.integer(l>=5), s_6=as.integer(l>=6),
+        s_7=as.integer(l>=7), s_8=as.integer(l>=8), s_9=as.integer(l>=9),
+        s_10=as.integer(l>=10), s_11=as.integer(l>=11), s_12=as.integer(l>=12),
+        s_13=as.integer(l>=13), s_14=as.integer(l>=14)
+      )
+
+      jags_code <- quote("
       model {
         for (a in 1:N) {
           y[a] ~ dbin(ilogit(beta0 + beta_j_2*j_2[a] + beta_j_3*j_3[a] +
@@ -1483,159 +1489,248 @@ if (run_realdata) {
       }
     ")
 
-    # jags_code <- quote("
-    #   model {
-    #     for (a in 1:N) {
-    #       y[a] ~ dbin(ilogit(
-    #       beta0 + beta_s_3 + beta_s_4 + beta_s_5 +
-    #       beta_s_6*s_6[a] + beta_s_7
-    #       ), n[a])
-    #     }
-    #     beta_s_7 <- ifelse(bern_7, 0, exp(alpha_s_7))
-    #     beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
-    #     beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
-    #     beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
-    #     beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
-    #     alpha_s_7 <- log(10) - e_s_7
-    #     alpha_s_6 <- log(10) - e_s_6
-    #     alpha_s_5 <- log(10) - e_s_5
-    #     alpha_s_4 <- log(10) - e_s_4
-    #     alpha_s_3 <- log(10) - e_s_3
-    #     bern_7 ~ dbern(0.1)
-    #     bern_6 ~ dbern(0.1)
-    #     bern_5 ~ dbern(0.1)
-    #     bern_4 ~ dbern(0.1)
-    #     bern_3 ~ dbern(0.1)
-    #     e_s_7 ~ dexp(1)
-    #     e_s_6 ~ dexp(1)
-    #     e_s_5 ~ dexp(1)
-    #     e_s_4 ~ dexp(1)
-    #     e_s_3 ~ dexp(1)
-    #     beta0 ~ dnorm(0, 1.0E-4)
-    #   }
-    # ")
+      # jags_code <- quote("
+      #   model {
+      #     for (a in 1:N) {
+      #       y[a] ~ dbin(ilogit(
+      #       beta0 + beta_s_3 + beta_s_4 + beta_s_5 +
+      #       beta_s_6*s_6[a] + beta_s_7
+      #       ), n[a])
+      #     }
+      #     beta_s_7 <- ifelse(bern_7, 0, exp(alpha_s_7))
+      #     beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+      #     beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+      #     beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+      #     beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+      #     alpha_s_7 <- log(10) - e_s_7
+      #     alpha_s_6 <- log(10) - e_s_6
+      #     alpha_s_5 <- log(10) - e_s_5
+      #     alpha_s_4 <- log(10) - e_s_4
+      #     alpha_s_3 <- log(10) - e_s_3
+      #     bern_7 ~ dbern(0.1)
+      #     bern_6 ~ dbern(0.1)
+      #     bern_5 ~ dbern(0.1)
+      #     bern_4 ~ dbern(0.1)
+      #     bern_3 ~ dbern(0.1)
+      #     e_s_7 ~ dexp(1)
+      #     e_s_6 ~ dexp(1)
+      #     e_s_5 ~ dexp(1)
+      #     e_s_4 ~ dexp(1)
+      #     e_s_3 ~ dexp(1)
+      #     beta0 ~ dnorm(0, 1.0E-4)
+      #   }
+      # ")
 
-    # mcmc <- list(n.adapt=100, n.iter=100, n.burn=100, n.chains=1, thin=1)
-    mcmc <- list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3, thin=1)
-    jm <- jags.model(
-      file = textConnection(jags_code),
-      data = list(
-        # N=nrow(df), y=df$y, n=df$n, s_6=df$s_6
-        I=length(unique(df$i)), N=nrow(df), y=df$y, n=df$n,
-        i=df$i, j_2=df$j_2, j_3=df$j_3, j_4=df$j_4,
-        j_5=df$j_5, j_6=df$j_6, j_7=df$j_7, j_8=df$j_8,
-        j_9=df$j_9, j_10=df$j_10, j_11=df$j_11,
-        j_12=df$j_12, j_13=df$j_13, j_14=df$j_14,
-        s_1=df$s_1, s_2=df$s_2, s_3=df$s_3, s_4=df$s_4,
-        s_5=df$s_5, s_6=df$s_6, s_7=df$s_7, s_8=df$s_8,
-        s_9=df$s_9, s_10=df$s_10, s_11=df$s_11,
-        s_12=df$s_12, s_13=df$s_13, s_14=df$s_14
-      ),
-      inits = list(
-        bern_1=1, bern_2=1, bern_3=1, bern_4=1, bern_5=1,
-        bern_6=1, bern_7=1, bern_8=1, bern_9=1, bern_10=1,
-        bern_11=1, bern_12=1, bern_13=1, bern_14=1
-      ),
-      n.chains = mcmc$n.chains,
-      n.adapt = mcmc$n.adapt
-    )
-    update(jm, n.iter = mcmc$n.burn)
-    output <- coda.samples(
-      model = jm,
-      variable.names = c("beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4",
-                         "beta_s_5", "beta_s_6", "beta_s_7", "beta_s_8",
-                         "beta_s_9", "beta_s_10", "beta_s_11", "beta_s_12",
-                         "beta_s_13", "beta_s_14"),
-      n.iter = mcmc$n.iter,
-      thin = mcmc$thin
-    )
-
-    n_samp <- length(output[[1]][,1])
-
-    # Extract beta_s means
-    beta_s_hat <- c()
-    for (i in 1:14) {
-      beta_s_hat[i] <- mean(
-        unlist(lapply(output, function(l) {
-          l[1:n_samp,paste0("beta_s_",i)]
-        })),
-        na.rm = TRUE
+      # mcmc <- list(n.adapt=100, n.iter=100, n.burn=100, n.chains=1, thin=1)
+      mcmc <- list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3, thin=1)
+      jm <- jags.model(
+        file = textConnection(jags_code),
+        data = list(
+          # N=nrow(df), y=df$y, n=df$n, s_6=df$s_6
+          I=length(unique(df$i)), N=nrow(df), y=df$y, n=df$n,
+          i=df$i, j_2=df$j_2, j_3=df$j_3, j_4=df$j_4,
+          j_5=df$j_5, j_6=df$j_6, j_7=df$j_7, j_8=df$j_8,
+          j_9=df$j_9, j_10=df$j_10, j_11=df$j_11,
+          j_12=df$j_12, j_13=df$j_13, j_14=df$j_14,
+          s_1=df$s_1, s_2=df$s_2, s_3=df$s_3, s_4=df$s_4,
+          s_5=df$s_5, s_6=df$s_6, s_7=df$s_7, s_8=df$s_8,
+          s_9=df$s_9, s_10=df$s_10, s_11=df$s_11,
+          s_12=df$s_12, s_13=df$s_13, s_14=df$s_14
+        ),
+        inits = list(
+          bern_1=1, bern_2=1, bern_3=1, bern_4=1, bern_5=1,
+          bern_6=1, bern_7=1, bern_8=1, bern_9=1, bern_10=1,
+          bern_11=1, bern_12=1, bern_13=1, bern_14=1
+        ),
+        n.chains = mcmc$n.chains,
+        n.adapt = mcmc$n.adapt
       )
-    }
+      update(jm, n.iter = mcmc$n.burn)
+      output <- coda.samples(
+        model = jm,
+        variable.names = c("beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4",
+                           "beta_s_5", "beta_s_6", "beta_s_7", "beta_s_8",
+                           "beta_s_9", "beta_s_10", "beta_s_11", "beta_s_12",
+                           "beta_s_13", "beta_s_14"),
+        n.iter = mcmc$n.iter,
+        thin = mcmc$thin
+      )
 
-    # Construct covariance matrix of s terms
-    sigma_s_hat <- matrix(NA, nrow=14, ncol=14)
-    for (i in 1:14) {
-      for (j in 1:14) {
-        sigma_s_hat[i,j] <- cov(
-          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",i)]})),
-          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",j)]})),
-          use = "complete.obs"
+      n_samp <- length(output[[1]][,1])
+
+      # Extract beta_s means
+      beta_s_hat <- c()
+      for (i in 1:14) {
+        beta_s_hat[i] <- mean(
+          unlist(lapply(output, function(l) {
+            l[1:n_samp,paste0("beta_s_",i)]
+          })),
+          na.rm = TRUE
         )
       }
-    }
 
-    # Calculate theta_l_hat vector and sigma_l_hat matrix
-    B = rbind(
-      c(rep(1,1),rep(0,13)),
-      c(rep(1,2),rep(0,12)),
-      c(rep(1,3),rep(0,11)),
-      c(rep(1,4),rep(0,10)),
-      c(rep(1,5),rep(0,9)),
-      c(rep(1,6),rep(0,8)),
-      c(rep(1,7),rep(0,7)),
-      c(rep(1,8),rep(0,6)),
-      c(rep(1,9),rep(0,5)),
-      c(rep(1,10),rep(0,4)),
-      c(rep(1,11),rep(0,3)),
-      c(rep(1,12),rep(0,2)),
-      c(rep(1,13),rep(0,1)),
-      rep(1,14)
-    )
-    theta_l_hat <- B %*% beta_s_hat
-    sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
-    coeffs_mec <- theta_l_hat
+      # Construct covariance matrix of s terms
+      sigma_s_hat <- matrix(NA, nrow=14, ncol=14)
+      for (i in 1:14) {
+        for (j in 1:14) {
+          sigma_s_hat[i,j] <- cov(
+            unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",i)]})),
+            unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",j)]})),
+            use = "complete.obs"
+          )
+        }
+      }
+
+      # Calculate theta_l_hat vector and sigma_l_hat matrix
+      B = rbind(
+        c(rep(1,1),rep(0,13)),
+        c(rep(1,2),rep(0,12)),
+        c(rep(1,3),rep(0,11)),
+        c(rep(1,4),rep(0,10)),
+        c(rep(1,5),rep(0,9)),
+        c(rep(1,6),rep(0,8)),
+        c(rep(1,7),rep(0,7)),
+        c(rep(1,8),rep(0,6)),
+        c(rep(1,9),rep(0,5)),
+        c(rep(1,10),rep(0,4)),
+        c(rep(1,11),rep(0,3)),
+        c(rep(1,12),rep(0,2)),
+        c(rep(1,13),rep(0,1)),
+        rep(1,14)
+      )
+      theta_l_hat <- B %*% beta_s_hat
+      sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
+      delta_mec <- theta_l_hat
+
+    }
 
   }
 
-  # Plot estimates
-  # !!!!! Add pointwise confidence bands
-  # Export: 6" x 4"
+  # Run models with time as a NCS
+  {
+    # Create NCS basis for time trend
+    J <- 15
+    ns_basis2 <- ns(c(1:J), knots=c(J/4,(2*J)/4,(3*J)/4))
+    df$t1 <- ns_basis2[df$j,1]
+    df$t2 <- ns_basis2[df$j,2]
+    df$t3 <- ns_basis2[df$j,3]
+    df$t4 <- ns_basis2[df$j,4]
 
+    # IT model
+    model_it2 <- glmmTMB(
+      cbind(y,n-y) ~ t1+t2+t3+t4 + x_ij + (1|i),
+      data = df,
+      family = "binomial"
+    )
+    est_it2 <- est(model_it2, "IT", "NCS")
+
+    # ETI model
+    model_eti2 <- glmmTMB(
+      cbind(y,n-y) ~ t1+t2+t3+t4 + factor(l) + (1|i),
+      data = df,
+      family = "binomial"
+    )
+    est_eti2 <- est(model_eti2, "ETI", "NCS")
+
+    # ETI (RTE; height) model
+    # Omitted
+
+    # Natural cubic spline (4df)
+    J <- 15
+    ns_basis <- ns(c(0:(J-1)), knots=c((J-1)/4,(2*(J-1))/4,(3*(J-1))/4))
+    df$c1 <- ns_basis[df$l+1,1]
+    df$c2 <- ns_basis[df$l+1,2]
+    df$c3 <- ns_basis[df$l+1,3]
+    df$c4 <- ns_basis[df$l+1,4]
+    model_ncs2 <- glmmTMB(
+      cbind(y,n-y) ~ t1+t2+t3+t4 + c1+c2+c3+c4 + (1|i),
+      data = df,
+      family = "binomial"
+    )
+    est_ncs2 <- est(model_ncs2, "NCS", "NCS")
+
+    # Monotone Effect Curve Bayesian model (P=0.1)
+    # !!!!! TO DO
+
+  }
+
+  # Treatment effect estimates (time trend as categorical)
+  # Export: 6" x 4"
+  models <- c("IT", "ETI","NCS")
   ggplot(
     data.frame(
       x = rep(c(0:14),6),
-      y = c(c(0,coeffs_eti), c(0,coeffs_cub3), c(0,coeffs_cub7),
-            c(0,coeffs_cub9), c(0,coeffs_ss), c(0,coeffs_ncs)),
-      which = rep(c("ETI","CUB3","CUB7","CUB9","SS","NCS"), each=15)
+      y = c(est_it$delta, est_eti$delta, est_ncs$delta,
+            est_it2$delta, est_eti2$delta, est_ncs2$delta),
+      ci_l = c(est_it$ci_l, est_eti$ci_l, est_ncs$ci_l,
+               est_it2$ci_l, est_eti2$ci_l, est_ncs2$ci_l),
+      ci_u = c(est_it$ci_u, est_eti$ci_u, est_ncs$ci_u,
+               est_it2$ci_u, est_eti2$ci_u, est_ncs2$ci_u),
+      model = rep(rep(factor(models, levels=models), each=15),2),
+      trend = rep(c("Categorical","Smoothed"), each=45)
     ),
-    aes(x=x, y=y, color=which)
+    aes(x=x, y=y, color=model)
   ) +
+    facet_grid(rows=vars(trend), cols=vars(model)) +
     geom_line() +
-    geom_hline(yintercept=coeff_it, linetype="longdash") +
-    labs(y="log(OR)", x="Exposure time", color="Model")
+    geom_ribbon(
+      aes(ymin=ci_l, ymax=ci_u, fill=as.factor(model)),
+      alpha = 0.2,
+      linetype = "dotted"
+    ) +
+    theme(legend.position="bottom") +
+    labs(y="Treatment effect: log(OR)", x="Exposure time", color="Model", fill="Model")
 
-  # !!!!! Testing smoothing spline
-  n <- 20
-  x <- seq(0,8, length.out=n)
-  y <- sin(x) + rnorm(n, sd=1)
-  model_ss <- gam(y ~ s(x, k=n, fx=FALSE, bs="cr", m=c(3,2)))
-  ss <- as.numeric(predict(model_ss, newdata=list(x=x), type="terms"))
-  ss <- ss + as.numeric(summary(model_ss)$p.coeff)
-  model_ss2 <- smooth.spline(x=x, y=y, cv=F, all.knots=T, keep.data=F)
-  ss2 <- list(x=predict(model_ss2)$x, y=predict(model_ss2)$y)
+  # Time trend estimates (time trend as categorical)
+  # Export: 8" x 4"
   ggplot(
     data.frame(
-      x = c(x, x, ss2$x),
-      y = c(y, ss, ss2$y),
-      which = rep(c("Data","SS","SS2"), each=n)
+      x = rep(c(0:14),6),
+      y = c(est_it$time, est_eti$time, est_ncs$time,
+            est_it2$time, est_eti2$time, est_ncs2$time),
+      ci_l = c(est_it$ci2_l, est_eti$ci2_l, est_ncs$ci2_l,
+               est_it2$ci2_l, est_eti2$ci2_l, est_ncs2$ci2_l),
+      ci_u = c(est_it$ci2_u, est_eti$ci2_u, est_ncs$ci2_u,
+               est_it2$ci2_u, est_eti2$ci2_u, est_ncs2$ci2_u),
+      model = rep(rep(factor(models, levels=models), each=15),2),
+      trend = rep(c("Categorical","Smoothed"), each=45)
+    ),
+    aes(x=x, y=y, color=model)
+  ) +
+    facet_grid(rows=vars(trend), cols=vars(model)) +
+    geom_line() +
+    geom_ribbon(
+      aes(ymin=ci_l, ymax=ci_u, fill=as.factor(model)),
+      alpha = 0.2,
+      linetype = "dotted"
+    ) +
+    theme(legend.position="bottom") +
+    labs(y="Time trend: log(OR)", x="Calendar time", color="Model", fill="Model")
+
+  # Time trend estimates (time trend as NCS)
+  # Export: 8" x 4"
+  ggplot(
+    data.frame(
+      x = rep(c(1:15),3),
+      y = c(est_it2$time, est_eti2$time, est_ncs2$time),
+      ci_l = c(est_it2$ci2_l, est_eti2$ci2_l, est_ncs2$ci2_l),
+      ci_u = c(est_it2$ci2_u, est_eti2$ci2_u, est_ncs2$ci2_u),
+      which = rep(factor(models, levels=models), each=15)
     ),
     aes(x=x, y=y, color=which)
   ) +
-    geom_line()
-  #
+    facet_wrap(~which, ncol=3) +
+    geom_line() +
+    geom_ribbon(
+      aes(ymin=ci_l, ymax=ci_u, fill=as.factor(which)),
+      alpha = 0.2,
+      linetype = "dotted"
+    ) +
+    coord_cartesian(ylim=c(-0.9,0.3)) +
+    theme(legend.position="bottom") +
+    labs(y="log(OR)", x="Exposure time", color="Model", fill="Model")
 
-  }
+}
 
 
 
