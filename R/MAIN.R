@@ -1277,7 +1277,8 @@ if (run_realdata) {
     "x_ij" = treatx
   )
   df %<>% filter(!is.na(y))
-  df %<>% group_by(i,j,l,x_ij)
+  # df %<>% group_by(i,j,l,x_ij)
+  df %<>% group_by(i,j,l,x_ij,site)
   df %<>% summarize(
     n = n(),
     y = sum(y)
@@ -1288,9 +1289,8 @@ if (run_realdata) {
 
   # Helper function to extract estimates
   # type is one of c("IT","ETI", "NCS")
-  est <- function(model, type, trend) {
+  est <- function(model, type) {
 
-    ind <- ifelse(trend=="cat", 16, 5)
     J <- 15
 
     # Extract treatment effect estimates
@@ -1301,75 +1301,80 @@ if (run_realdata) {
         delta <- rep(delta,14)
         se <- rep(se,14)
       } else if (type=="ETI") {
-        delta <- as.numeric(summary(model)$coefficients$cond[,1][ind:(ind+13)])
-        se <- as.numeric(sqrt(diag(summary(model)$vcov[[1]])[ind:(ind+13)]))
+        delta <- as.numeric(summary(model)$coefficients$cond[,1][16:29])
+        vcov <- summary(model)$vcov[[1]][16:29,16:29]
+        se <- as.numeric(sqrt(diag(vcov)))
       } else if (type=="NCS") {
         ns_basis <- ns(c(0:(J-1)), knots=c((J-1)/4,(2*(J-1))/4,(3*(J-1))/4))
-        b_hat <- as.numeric(summary(model)$coefficients$cond[,1][ind:(ind+3)])
-        sigma_b_hat <- summary(model)$vcov[[1]][ind:(ind+3),ind:(ind+3)]
+        b_hat <- as.numeric(summary(model)$coefficients$cond[,1][16:19])
+        sigma_b_hat <- summary(model)$vcov[[1]][16:19,16:19]
         B <- matrix(NA, nrow=14, ncol=4)
         for (i in 1:14) { for (j in 1:4) { B[i,j] <- ns_basis[i+1,j] }}
         delta <- as.numeric(B %*% b_hat)
         vcov <- B %*% sigma_b_hat %*% t(B)
         se <- sqrt(diag(vcov))
       }
-      delta <- c(0,delta)
-      se <- c(0,se)
     }
-
-    # Calculate treatment effect CIs
-    ci_l <- delta-1.96*se
-    ci_u <- delta+1.96*se
 
     # Calculate time trend estimates and CIs
-    if (trend=="cat") {
-      time <- c(0,as.numeric(summary(model)$coefficients$cond[,1][2:15]))
-      se2 <- c(0,as.numeric(sqrt(diag(summary(model)$vcov[[1]])[2:15])))
-      ci2_l <- time-1.96*se2
-      ci2_u <- time+1.96*se2
+    time <- c(0,as.numeric(summary(model)$coefficients$cond[,1][2:15]))
+    se2 <- c(0,as.numeric(sqrt(diag(summary(model)$vcov[[1]])[2:15])))
+
+    # Calculate TATE and LTE
+    if (type=="IT") {
+      ate_hat <- delta[1]
+      se_ate_hat <- se[1]
+      lte_hat <- delta[1]
+      se_lte_hat <- se[1]
     } else {
-      ns_basis2 <- ns(c(1:J), knots=c(J/4,(2*J)/4,(3*J)/4))
-      t_hat <- as.numeric(summary(model)$coefficients$cond[,1][2:5])
-      sigma_t_hat <- summary(model)$vcov[[1]][2:5,2:5]
-      B <- matrix(NA, nrow=14, ncol=4)
-      for (i in 1:14) { for (j in 1:4) { B[i,j] <- ns_basis[i+1,j] }}
-      time <- c(0,as.numeric(B %*% t_hat))
-      vcov <- B %*% sigma_t_hat %*% t(B)
-      se2 <- c(0,sqrt(diag(vcov)))
-      ci2_l <- time-1.96*se2
-      ci2_u <- time+1.96*se2
+      A <- (1/(J-1)) * matrix(rep(1,J-1), nrow=1)
+      ate_hat <- (A %*% delta)[1,1]
+      se_ate_hat <- sqrt(A %*% vcov %*% t(A))[1,1]
+      lte_hat <- delta[J-1]
+      se_lte_hat <- sqrt(se[J-1])
     }
 
-    return(list(delta=delta, ci_l=ci_l, ci_u=ci_u,
-                time=time, ci2_l=ci2_l, ci2_u=ci2_u))
+    return(list(
+      delta = c(0,delta),
+      ci_l = c(0,delta)-1.96*c(0,se),
+      ci_u = c(0,delta)+1.96*c(0,se),
+      time = time,
+      ci2_l = time-1.96*se2,
+      ci2_u = time+1.96*se2,
+      ate_hat = round(ate_hat,4),
+      ate_l = round(ate_hat-1.96*se_ate_hat,4),
+      ate_u = round(ate_hat+1.96*se_ate_hat,4),
+      lte_hat = round(lte_hat,4),
+      lte_l = round(lte_hat-1.96*se_lte_hat,4),
+      lte_u = round(lte_hat+1.96*se_lte_hat,4)
+    ))
 
   }
 
-  # Run models with time as categorical
   {
     # IT model
     model_it <- glmmTMB(
-      cbind(y,n-y) ~ factor(j) + x_ij + (1|i),
+      cbind(y,n-y) ~ factor(j) + x_ij + (1|i) + (1|i:site),
       data = df,
-      family = "binomial"
+      family = "binomial" # binomial(link="log")
     )
-    est_it <- est(model_it, "IT", "cat")
+    est_it <- est(model_it, "IT")
 
     # ETI model
     model_eti <- glmmTMB(
-      cbind(y,n-y) ~ factor(j) + factor(l) + (1|i),
+      cbind(y,n-y) ~ factor(j) + factor(l) + (1|i) + (1|i:site),
       data = df,
       family = "binomial"
     )
-    est_eti <- est(model_eti, "ETI", "cat")
+    est_eti <- est(model_eti, "ETI")
 
-    # ETI (RTE; height) model
-    model_rte <- glmmTMB(
-      cbind(y,n-y) ~ factor(j) + factor(l) + (x_ij|i),
-      data = df,
-      family = "binomial"
-    )
-    est_rte <- est(model_rte, "ETI", "cat")
+    # # ETI (RTE; height) model
+    # model_rte <- glmmTMB(
+    #   cbind(y,n-y) ~ factor(j) + factor(l) + (x_ij|i),
+    #   data = df,
+    #   family = "binomial"
+    # )
+    # est_rte <- est(model_rte, "ETI")
 
     # Natural cubic spline (4df)
     J <- 15
@@ -1379,37 +1384,39 @@ if (run_realdata) {
     df$c3 <- ns_basis[df$l+1,3]
     df$c4 <- ns_basis[df$l+1,4]
     model_ncs <- glmmTMB(
-      cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4 + (1|i),
+      cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4 + (1|i) + (1|i:site),
       data = df,
       family = "binomial"
     )
-    est_ncs <- est(model_ncs, "NCS", "cat")
+    est_ncs <- est(model_ncs, "NCS")
 
     # Monotone Effect Curve Bayesian model (P=0.1)
-    # !!!!! Incomplete
-    if (FALSE) {
-      df %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
-      df %<>% mutate(
-        s_1=as.integer(l>=1), s_2=as.integer(l>=2), s_3=as.integer(l>=3),
-        s_4=as.integer(l>=4), s_5=as.integer(l>=5), s_6=as.integer(l>=6),
-        s_7=as.integer(l>=7), s_8=as.integer(l>=8), s_9=as.integer(l>=9),
-        s_10=as.integer(l>=10), s_11=as.integer(l>=11), s_12=as.integer(l>=12),
-        s_13=as.integer(l>=13), s_14=as.integer(l>=14)
-      )
+    df %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
+    df %<>% mutate(
+      s_1=as.integer(l>=1), s_2=as.integer(l>=2), s_3=as.integer(l>=3),
+      s_4=as.integer(l>=4), s_5=as.integer(l>=5), s_6=as.integer(l>=6),
+      s_7=as.integer(l>=7), s_8=as.integer(l>=8), s_9=as.integer(l>=9),
+      s_10=as.integer(l>=10), s_11=as.integer(l>=11), s_12=as.integer(l>=12),
+      s_13=as.integer(l>=13), s_14=as.integer(l>=14)
+    )
 
-      jags_code <- quote("
+    jags_code <- quote("
       model {
         for (a in 1:N) {
           y[a] ~ dbin(ilogit(beta0 + beta_j_2*j_2[a] + beta_j_3*j_3[a] +
           beta_j_4*j_4[a] + beta_j_5*j_5[a] + beta_j_6*j_6[a] + beta_j_7*j_7[a] +
           beta_j_8*j_8[a] + beta_j_9*j_9[a] + beta_j_10*j_10[a] +
           beta_j_11*j_11[a] + beta_j_12*j_12[a] + beta_j_13*j_13[a] +
-          beta_j_14*j_14[a] + beta_s_1*s_1[a] + beta_s_2*s_2[a] +
-          beta_s_3*s_3[a] + beta_s_4*s_4[a] + beta_s_5*s_5[a] + beta_s_6*s_6[a] +
-          beta_s_7*s_7[a] + beta_s_8*s_8[a] + beta_s_9*s_9[a] +
-          beta_s_10*s_10[a] + beta_s_11*s_11[a] + beta_s_12*s_12[a] +
-          beta_s_13*s_13[a] + beta_s_14*s_14[a] + alpha[i[a]]),
+          beta_j_14*j_14[a] + beta_j_15*j_15[a] + beta_s_1*s_1[a] +
+          beta_s_2*s_2[a] + beta_s_3*s_3[a] + beta_s_4*s_4[a] +
+          beta_s_5*s_5[a] + beta_s_6*s_6[a] + beta_s_7*s_7[a] +
+          beta_s_8*s_8[a] + beta_s_9*s_9[a] + beta_s_10*s_10[a] +
+          beta_s_11*s_11[a] + beta_s_12*s_12[a] + beta_s_13*s_13[a] +
+          beta_s_14*s_14[a] + alpha[i[a]] + alpha2[site[a]]),
           n[a])
+        }
+        for (a in 1:I2) {
+          alpha2[a] ~ dnorm(0, 1/(tau2^2))
         }
         for (a in 1:I) {
           alpha[a] ~ dnorm(0, 1/(tau^2))
@@ -1470,6 +1477,7 @@ if (run_realdata) {
         e_s_3 ~ dexp(1)
         e_s_2 ~ dexp(1)
         e_s_1 ~ dexp(1)
+        beta_j_15 ~ dnorm(0, 1.0E-4)
         beta_j_14 ~ dnorm(0, 1.0E-4)
         beta_j_13 ~ dnorm(0, 1.0E-4)
         beta_j_12 ~ dnorm(0, 1.0E-4)
@@ -1484,194 +1492,183 @@ if (run_realdata) {
         beta_j_3 ~ dnorm(0, 1.0E-4)
         beta_j_2 ~ dnorm(0, 1.0E-4)
         beta0 ~ dnorm(0, 1.0E-4)
+        tau2 <- 1/sqrt(tau_prec2)
+        tau_prec2 ~ dgamma(1.0E-3, 1.0E-3)
         tau <- 1/sqrt(tau_prec)
         tau_prec ~ dgamma(1.0E-3, 1.0E-3)
       }
     ")
 
-      # jags_code <- quote("
-      #   model {
-      #     for (a in 1:N) {
-      #       y[a] ~ dbin(ilogit(
-      #       beta0 + beta_s_3 + beta_s_4 + beta_s_5 +
-      #       beta_s_6*s_6[a] + beta_s_7
-      #       ), n[a])
-      #     }
-      #     beta_s_7 <- ifelse(bern_7, 0, exp(alpha_s_7))
-      #     beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
-      #     beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
-      #     beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
-      #     beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
-      #     alpha_s_7 <- log(10) - e_s_7
-      #     alpha_s_6 <- log(10) - e_s_6
-      #     alpha_s_5 <- log(10) - e_s_5
-      #     alpha_s_4 <- log(10) - e_s_4
-      #     alpha_s_3 <- log(10) - e_s_3
-      #     bern_7 ~ dbern(0.1)
-      #     bern_6 ~ dbern(0.1)
-      #     bern_5 ~ dbern(0.1)
-      #     bern_4 ~ dbern(0.1)
-      #     bern_3 ~ dbern(0.1)
-      #     e_s_7 ~ dexp(1)
-      #     e_s_6 ~ dexp(1)
-      #     e_s_5 ~ dexp(1)
-      #     e_s_4 ~ dexp(1)
-      #     e_s_3 ~ dexp(1)
-      #     beta0 ~ dnorm(0, 1.0E-4)
-      #   }
-      # ")
+    mcmc <- list(n.adapt=5000, n.iter=5000, n.burn=5000, n.chains=3, thin=1)
+    # mcmc <- list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3, thin=1)
+    jm <- jags.model(
+      file = textConnection(jags_code),
+      data = list(
+        I=length(unique(df$i)), N=nrow(df), y=df$y, n=df$n,
+        I2=length(unique(df$site)), site=as.numeric(factor(df$site)),
+        i=df$i, j_2=df$j_2, j_3=df$j_3, j_4=df$j_4,
+        j_5=df$j_5, j_6=df$j_6, j_7=df$j_7, j_8=df$j_8,
+        j_9=df$j_9, j_10=df$j_10, j_11=df$j_11,
+        j_12=df$j_12, j_13=df$j_13, j_14=df$j_14, j_15=df$j_15,
+        s_1=df$s_1, s_2=df$s_2, s_3=df$s_3, s_4=df$s_4,
+        s_5=df$s_5, s_6=df$s_6, s_7=df$s_7, s_8=df$s_8,
+        s_9=df$s_9, s_10=df$s_10, s_11=df$s_11,
+        s_12=df$s_12, s_13=df$s_13, s_14=df$s_14
+      ),
+      inits = list(
+        bern_1=1, bern_2=1, bern_3=1, bern_4=1, bern_5=1,
+        bern_6=1, bern_7=1, bern_8=1, bern_9=1, bern_10=1,
+        bern_11=1, bern_12=1, bern_13=1, bern_14=1
+      ),
+      n.chains = mcmc$n.chains,
+      n.adapt = mcmc$n.adapt
+    )
+    update(jm, n.iter = mcmc$n.burn)
+    output <- coda.samples(
+      model = jm,
+      variable.names = c(
+        "beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4", "beta_s_5",
+        "beta_s_6", "beta_s_7", "beta_s_8", "beta_s_9", "beta_s_10",
+        "beta_s_11", "beta_s_12", "beta_s_13", "beta_s_14", "beta_j_2",
+        "beta_j_3", "beta_j_4", "beta_j_5", "beta_j_6", "beta_j_7",
+        "beta_j_8", "beta_j_9", "beta_j_10", "beta_j_11", "beta_j_12",
+        "beta_j_13", "beta_j_14", "beta_j_15"),
+      n.iter = mcmc$n.iter,
+      thin = mcmc$thin
+    )
 
-      # mcmc <- list(n.adapt=100, n.iter=100, n.burn=100, n.chains=1, thin=1)
-      mcmc <- list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3, thin=1)
-      jm <- jags.model(
-        file = textConnection(jags_code),
-        data = list(
-          # N=nrow(df), y=df$y, n=df$n, s_6=df$s_6
-          I=length(unique(df$i)), N=nrow(df), y=df$y, n=df$n,
-          i=df$i, j_2=df$j_2, j_3=df$j_3, j_4=df$j_4,
-          j_5=df$j_5, j_6=df$j_6, j_7=df$j_7, j_8=df$j_8,
-          j_9=df$j_9, j_10=df$j_10, j_11=df$j_11,
-          j_12=df$j_12, j_13=df$j_13, j_14=df$j_14,
-          s_1=df$s_1, s_2=df$s_2, s_3=df$s_3, s_4=df$s_4,
-          s_5=df$s_5, s_6=df$s_6, s_7=df$s_7, s_8=df$s_8,
-          s_9=df$s_9, s_10=df$s_10, s_11=df$s_11,
-          s_12=df$s_12, s_13=df$s_13, s_14=df$s_14
-        ),
-        inits = list(
-          bern_1=1, bern_2=1, bern_3=1, bern_4=1, bern_5=1,
-          bern_6=1, bern_7=1, bern_8=1, bern_9=1, bern_10=1,
-          bern_11=1, bern_12=1, bern_13=1, bern_14=1
-        ),
-        n.chains = mcmc$n.chains,
-        n.adapt = mcmc$n.adapt
+    n_samp <- length(output[[1]][,1])
+
+    # Extract beta_s and beta_j means
+    beta_s_hat <- c()
+    beta_j_hat <- c()
+    for (i in 1:14) {
+      beta_s_hat[i] <- mean(
+        unlist(lapply(output, function(l) {
+          l[1:n_samp,paste0("beta_s_",i)]
+        })),
+        na.rm = TRUE
       )
-      update(jm, n.iter = mcmc$n.burn)
-      output <- coda.samples(
-        model = jm,
-        variable.names = c("beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4",
-                           "beta_s_5", "beta_s_6", "beta_s_7", "beta_s_8",
-                           "beta_s_9", "beta_s_10", "beta_s_11", "beta_s_12",
-                           "beta_s_13", "beta_s_14"),
-        n.iter = mcmc$n.iter,
-        thin = mcmc$thin
+      beta_j_hat[i] <- mean(
+        unlist(lapply(output, function(l) {
+          l[1:n_samp,paste0("beta_j_",i+1)]
+        })),
+        na.rm = TRUE
       )
+    }
 
-      n_samp <- length(output[[1]][,1])
-
-      # Extract beta_s means
-      beta_s_hat <- c()
-      for (i in 1:14) {
-        beta_s_hat[i] <- mean(
-          unlist(lapply(output, function(l) {
-            l[1:n_samp,paste0("beta_s_",i)]
-          })),
-          na.rm = TRUE
+    # Construct covariance matrices
+    sigma_s_hat <- matrix(NA, nrow=14, ncol=14)
+    sigma_j_hat <- matrix(NA, nrow=14, ncol=14)
+    for (i in 1:14) {
+      for (j in 1:14) {
+        sigma_s_hat[i,j] <- cov(
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",i)]})),
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",j)]})),
+          use = "complete.obs"
+        )
+        sigma_j_hat[i,j] <- cov(
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_j_",i+1)]})),
+          unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_j_",j+1)]})),
+          use = "complete.obs"
         )
       }
+    }
 
-      # Construct covariance matrix of s terms
-      sigma_s_hat <- matrix(NA, nrow=14, ncol=14)
-      for (i in 1:14) {
-        for (j in 1:14) {
-          sigma_s_hat[i,j] <- cov(
-            unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",i)]})),
-            unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",j)]})),
-            use = "complete.obs"
-          )
-        }
-      }
+    # Calculate theta_l_hat vector and sigma_l_hat matrix
+    B = rbind(
+      c(rep(1,1),rep(0,13)),
+      c(rep(1,2),rep(0,12)),
+      c(rep(1,3),rep(0,11)),
+      c(rep(1,4),rep(0,10)),
+      c(rep(1,5),rep(0,9)),
+      c(rep(1,6),rep(0,8)),
+      c(rep(1,7),rep(0,7)),
+      c(rep(1,8),rep(0,6)),
+      c(rep(1,9),rep(0,5)),
+      c(rep(1,10),rep(0,4)),
+      c(rep(1,11),rep(0,3)),
+      c(rep(1,12),rep(0,2)),
+      c(rep(1,13),rep(0,1)),
+      rep(1,14)
+    )
+    est_mec <- list()
+    est_mec$delta <- B %*% beta_s_hat
+    sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
+    est_mec$se <- sqrt(diag(sigma_l_hat))
+    A <- (1/(J-1)) * matrix(rep(1,J-1), nrow=1)
+    est_mec$ate_hat <- round((A %*% est_mec$delta)[1,1],4)
+    est_mec$se_ate_hat <- sqrt(A %*% sigma_l_hat %*% t(A))[1,1]
+    est_mec$ate_l <- round(est_mec$ate_hat-1.96*est_mec$se_ate_hat,4)
+    est_mec$ate_u <- round(est_mec$ate_hat+1.96*est_mec$se_ate_hat,4)
+    est_mec$lte_hat <- round(est_mec$delta[J-1],4)
+    est_mec$se_lte_hat <- sqrt(est_mec$se[J-1])
+    est_mec$lte_l <- round(est_mec$lte_hat-1.96*est_mec$se_lte_hat,4)
+    est_mec$lte_u <- round(est_mec$lte_hat+1.96*est_mec$se_lte_hat,4)
+    est_mec$delta <- c(0, est_mec$delta)
+    est_mec$se <- c(0, est_mec$se)
+    est_mec$ci_l <- est_mec$delta-1.96*est_mec$se
+    est_mec$ci_u <- est_mec$delta+1.96*est_mec$se
+    est_mec$time <- c(0,beta_j_hat)
+    est_mec$se2 <- c(0,sqrt(diag(sigma_j_hat)))
+    est_mec$ci2_l <- est_mec$time-1.96*est_mec$se2
+    est_mec$ci2_u <- est_mec$time+1.96*est_mec$se2
 
-      # Calculate theta_l_hat vector and sigma_l_hat matrix
-      B = rbind(
-        c(rep(1,1),rep(0,13)),
-        c(rep(1,2),rep(0,12)),
-        c(rep(1,3),rep(0,11)),
-        c(rep(1,4),rep(0,10)),
-        c(rep(1,5),rep(0,9)),
-        c(rep(1,6),rep(0,8)),
-        c(rep(1,7),rep(0,7)),
-        c(rep(1,8),rep(0,6)),
-        c(rep(1,9),rep(0,5)),
-        c(rep(1,10),rep(0,4)),
-        c(rep(1,11),rep(0,3)),
-        c(rep(1,12),rep(0,2)),
-        c(rep(1,13),rep(0,1)),
-        rep(1,14)
-      )
-      theta_l_hat <- B %*% beta_s_hat
-      sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
-      delta_mec <- theta_l_hat
-
+    # !!!!! MCMC diagnostics
+    if (FALSE) {
+      var <- "beta_s_11"
+      c1 <- output[[1]][1:n_samp,var]
+      c2 <- output[[2]][1:n_samp,var]
+      c3 <- output[[3]][1:n_samp,var]
+      ggplot(
+        data.frame(
+          x = rep(c(1:n_samp),3),
+          y = c(c1,c2,c3),
+          chain = rep(c(1:3), each=n_samp)
+        ),
+        aes(x=x, y=y, color=factor(chain))) +
+        geom_line() +
+        labs(title=var)
     }
 
   }
 
-  # Run models with time as a NCS
-  {
-    # Create NCS basis for time trend
-    J <- 15
-    ns_basis2 <- ns(c(1:J), knots=c(J/4,(2*J)/4,(3*J)/4))
-    df$t1 <- ns_basis2[df$j,1]
-    df$t2 <- ns_basis2[df$j,2]
-    df$t3 <- ns_basis2[df$j,3]
-    df$t4 <- ns_basis2[df$j,4]
+  # Print results
+  print("Model: IT")
+  print(paste0("TATE: ", exp(est_it$ate_hat), " (", exp(est_it$ate_l), " -- ",
+               exp(est_it$ate_u), ")"))
+  print(paste0("LTE: ", exp(est_it$lte_hat), " (", exp(est_it$lte_l), " -- ",
+               exp(est_it$lte_u), ")"))
+  print("Model: ETI")
+  print(paste0("TATE: ", exp(est_eti$ate_hat), " (", exp(est_eti$ate_l), " -- ",
+               exp(est_eti$ate_u), ")"))
+  print(paste0("LTE: ", exp(est_eti$lte_hat), " (", exp(est_eti$lte_l), " -- ",
+               exp(est_eti$lte_u), ")"))
+  print("Model: NCS")
+  print(paste0("TATE: ", exp(est_ncs$ate_hat), " (", exp(est_ncs$ate_l), " -- ",
+               exp(est_ncs$ate_u), ")"))
+  print(paste0("LTE: ", exp(est_ncs$lte_hat), " (", exp(est_ncs$lte_l), " -- ",
+               exp(est_ncs$lte_u), ")"))
+  print("Model: MEC")
+  print(paste0("TATE: ", exp(est_mec$ate_hat), " (", exp(est_mec$ate_l), " -- ",
+               exp(est_mec$ate_u), ")"))
+  print(paste0("LTE: ", exp(est_mec$lte_hat), " (", exp(est_mec$lte_l), " -- ",
+               exp(est_mec$lte_u), ")"))
 
-    # IT model
-    model_it2 <- glmmTMB(
-      cbind(y,n-y) ~ t1+t2+t3+t4 + x_ij + (1|i),
-      data = df,
-      family = "binomial"
-    )
-    est_it2 <- est(model_it2, "IT", "NCS")
-
-    # ETI model
-    model_eti2 <- glmmTMB(
-      cbind(y,n-y) ~ t1+t2+t3+t4 + factor(l) + (1|i),
-      data = df,
-      family = "binomial"
-    )
-    est_eti2 <- est(model_eti2, "ETI", "NCS")
-
-    # ETI (RTE; height) model
-    # Omitted
-
-    # Natural cubic spline (4df)
-    J <- 15
-    ns_basis <- ns(c(0:(J-1)), knots=c((J-1)/4,(2*(J-1))/4,(3*(J-1))/4))
-    df$c1 <- ns_basis[df$l+1,1]
-    df$c2 <- ns_basis[df$l+1,2]
-    df$c3 <- ns_basis[df$l+1,3]
-    df$c4 <- ns_basis[df$l+1,4]
-    model_ncs2 <- glmmTMB(
-      cbind(y,n-y) ~ t1+t2+t3+t4 + c1+c2+c3+c4 + (1|i),
-      data = df,
-      family = "binomial"
-    )
-    est_ncs2 <- est(model_ncs2, "NCS", "NCS")
-
-    # Monotone Effect Curve Bayesian model (P=0.1)
-    # !!!!! TO DO
-
-  }
-
-  # Treatment effect estimates (time trend as categorical)
-  # Export: 6" x 4"
-  models <- c("IT", "ETI","NCS")
+  # Treatment effect estimates
+  # Export: 8" x 3"
+  models <- c("IT", "ETI","NCS (4df)","MEC (P=0.1)")
   ggplot(
     data.frame(
-      x = rep(c(0:14),6),
-      y = c(est_it$delta, est_eti$delta, est_ncs$delta,
-            est_it2$delta, est_eti2$delta, est_ncs2$delta),
-      ci_l = c(est_it$ci_l, est_eti$ci_l, est_ncs$ci_l,
-               est_it2$ci_l, est_eti2$ci_l, est_ncs2$ci_l),
-      ci_u = c(est_it$ci_u, est_eti$ci_u, est_ncs$ci_u,
-               est_it2$ci_u, est_eti2$ci_u, est_ncs2$ci_u),
-      model = rep(rep(factor(models, levels=models), each=15),2),
-      trend = rep(c("Categorical","Smoothed"), each=45)
+      x = rep(c(0:14),4),
+      y = exp(c(est_it$delta, est_eti$delta, est_ncs$delta, est_mec$delta)),
+      ci_l = exp(c(est_it$ci_l, est_eti$ci_l, est_ncs$ci_l, est_mec$ci_l)),
+      ci_u = exp(c(est_it$ci_u, est_eti$ci_u, est_ncs$ci_u, est_mec$ci_u)),
+      model = rep(factor(models, levels=models), each=15)
     ),
     aes(x=x, y=y, color=model)
   ) +
-    facet_grid(rows=vars(trend), cols=vars(model)) +
+    facet_wrap(~model, ncol=4) +
     geom_line() +
     geom_ribbon(
       aes(ymin=ci_l, ymax=ci_u, fill=as.factor(model)),
@@ -1679,25 +1676,21 @@ if (run_realdata) {
       linetype = "dotted"
     ) +
     theme(legend.position="bottom") +
-    labs(y="Treatment effect: log(OR)", x="Exposure time", color="Model", fill="Model")
+    labs(y="Treatment effect (odds ratio)", x="Exposure time", color="Model", fill="Model")
 
-  # Time trend estimates (time trend as categorical)
-  # Export: 8" x 4"
+  # Time trend estimates
+  # Export: 8" x 3"
   ggplot(
     data.frame(
-      x = rep(c(0:14),6),
-      y = c(est_it$time, est_eti$time, est_ncs$time,
-            est_it2$time, est_eti2$time, est_ncs2$time),
-      ci_l = c(est_it$ci2_l, est_eti$ci2_l, est_ncs$ci2_l,
-               est_it2$ci2_l, est_eti2$ci2_l, est_ncs2$ci2_l),
-      ci_u = c(est_it$ci2_u, est_eti$ci2_u, est_ncs$ci2_u,
-               est_it2$ci2_u, est_eti2$ci2_u, est_ncs2$ci2_u),
-      model = rep(rep(factor(models, levels=models), each=15),2),
-      trend = rep(c("Categorical","Smoothed"), each=45)
+      x = rep(c(1:15),4),
+      y = exp(c(est_it$time, est_eti$time, est_ncs$time, est_mec$time)),
+      ci_l = exp(c(est_it$ci2_l, est_eti$ci2_l, est_ncs$ci2_l, est_mec$ci2_l)),
+      ci_u = exp(c(est_it$ci2_u, est_eti$ci2_u, est_ncs$ci2_u, est_mec$ci2_u)),
+      model = rep(factor(models, levels=models), each=15)
     ),
     aes(x=x, y=y, color=model)
   ) +
-    facet_grid(rows=vars(trend), cols=vars(model)) +
+    facet_wrap(~model, ncol=4) +
     geom_line() +
     geom_ribbon(
       aes(ymin=ci_l, ymax=ci_u, fill=as.factor(model)),
@@ -1705,30 +1698,7 @@ if (run_realdata) {
       linetype = "dotted"
     ) +
     theme(legend.position="bottom") +
-    labs(y="Time trend: log(OR)", x="Calendar time", color="Model", fill="Model")
-
-  # Time trend estimates (time trend as NCS)
-  # Export: 8" x 4"
-  ggplot(
-    data.frame(
-      x = rep(c(1:15),3),
-      y = c(est_it2$time, est_eti2$time, est_ncs2$time),
-      ci_l = c(est_it2$ci2_l, est_eti2$ci2_l, est_ncs2$ci2_l),
-      ci_u = c(est_it2$ci2_u, est_eti2$ci2_u, est_ncs2$ci2_u),
-      which = rep(factor(models, levels=models), each=15)
-    ),
-    aes(x=x, y=y, color=which)
-  ) +
-    facet_wrap(~which, ncol=3) +
-    geom_line() +
-    geom_ribbon(
-      aes(ymin=ci_l, ymax=ci_u, fill=as.factor(which)),
-      alpha = 0.2,
-      linetype = "dotted"
-    ) +
-    coord_cartesian(ylim=c(-0.9,0.3)) +
-    theme(legend.position="bottom") +
-    labs(y="log(OR)", x="Exposure time", color="Model", fill="Model")
+    labs(y="Time effect: (odds ratio)", x="Calendar time", color="Model", fill="Model")
 
 }
 
