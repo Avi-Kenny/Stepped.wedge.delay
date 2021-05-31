@@ -1194,6 +1194,62 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
     }
 
+    if (method$enforce=="exp; mix prior 0.1dir") {
+
+      jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + dir*( beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] ) + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
+          alpha_s_6 <- log(10) - e_s_6
+          alpha_s_5 <- log(10) - e_s_5
+          alpha_s_4 <- log(10) - e_s_4
+          alpha_s_3 <- log(10) - e_s_3
+          alpha_s_2 <- log(10) - e_s_2
+          alpha_s_1 <- log(10) - e_s_1
+          bern_6 ~ dbern(0.1)
+          bern_5 ~ dbern(0.1)
+          bern_4 ~ dbern(0.1)
+          bern_3 ~ dbern(0.1)
+          bern_2 ~ dbern(0.1)
+          bern_1 ~ dbern(0.1)
+          dir <- ifelse(bern_0, 1, -1)
+          bern_0 ~ dbern(0.5)
+          e_s_6 ~ dexp(1)
+          e_s_5 ~ dexp(1)
+          e_s_4 ~ dexp(1)
+          e_s_3 ~ dexp(1)
+          e_s_2 ~ dexp(1)
+          e_s_1 ~ dexp(1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+    }
+
     if (method$enforce=="exp; mix prior v2") {
 
       jags_code <- quote("
@@ -1627,8 +1683,8 @@ run_analysis <- function(data, data_type, method, return_extra) {
     output <- coda.samples(
       model = jm,
       variable.names = c("beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4",
-                         # "beta_s_5", "beta_s_6", "p"),
-                         "beta_s_5", "beta_s_6"),
+                         "beta_s_5", "beta_s_6", "dir"),
+                         # "beta_s_5", "beta_s_6"),
       n.iter = mcmc$n.iter,
       thin = mcmc$thin
     )
@@ -1638,7 +1694,7 @@ run_analysis <- function(data, data_type, method, return_extra) {
     # MCMC diagnostics
     if (FALSE) {
       n_samp <- length(output[[1]][,1])
-      var <- "beta_s_6"
+      var <- "dir"
       c1 <- output[[1]][1:n_samp,var]
       c2 <- output[[2]][1:n_samp,var]
       ggplot(

@@ -224,7 +224,7 @@ if (run_main) {
       n_time_points = 7,
       n_ind_per_cluster = 50,
       theta = 0.5,
-      tau = 1,
+      tau = 0.5,
       sigma = 2,
       data_type = "normal",
       method = list(
@@ -236,12 +236,6 @@ if (run_main) {
           mcmc = cfg$mcmc)
         # "MEC (v2)" = list(
         #   method = "MCMC-STEP-MON", enforce="exp; mix prior v2",
-        #   mcmc = cfg$mcmc),
-        # "MEC (v3)" = list(
-        #   method = "MCMC-STEP-MON", enforce="exp; mix prior v3",
-        #   mcmc = cfg$mcmc)
-        # "MEC (v2b)" = list(
-        #   method = "MCMC-STEP-MON", enforce="exp; mix prior v2b",
         #   mcmc = cfg$mcmc)
       ),
       delay_model = delay_models,
@@ -257,7 +251,7 @@ if (run_main) {
       n_time_points = 7,
       n_ind_per_cluster = 50,
       theta = seq(0,0.5,0.1),
-      tau = 1,
+      tau = 0.5,
       sigma = 2,
       data_type = "normal",
       method = list(
@@ -281,7 +275,7 @@ if (run_main) {
       n_time_points = 7,
       n_ind_per_cluster = seq(10,50,10),
       theta = 0.5,
-      tau = 1,
+      tau = 0.5,
       sigma = 2,
       data_type = "normal",
       method = list(
@@ -305,7 +299,7 @@ if (run_main) {
       n_time_points = 7,
       n_ind_per_cluster = 50,
       theta = 0.5,
-      tau = 1,
+      tau = 0.5,
       sigma = 2,
       data_type = "normal",
       method = list(
@@ -326,7 +320,7 @@ if (run_main) {
       n_time_points = 7,
       n_ind_per_cluster = 50,
       theta = 0.5,
-      tau = 1,
+      tau = 0.5,
       sigma = 2,
       data_type = "normal",
       method = list(
@@ -355,7 +349,7 @@ if (run_main) {
       n_time_points = 7,
       n_ind_per_cluster = 50,
       theta = 0.5,
-      tau = 1,
+      tau = 0.5,
       sigma = 2,
       data_type = "normal",
       method = list("ETI" = list(method="ETI")),
@@ -465,25 +459,29 @@ if (run_main) {
 if (run_process_results) {
 
   # Set simulation
-  whichsim <- 3
+  whichsim <- 2
 
   # Read in simulation object
   sim <- readRDS("../simba.out/sim123_20210506.simba")
 
   # Generate true TATE values
+  # Now using step function approximations
   sim$results %<>% mutate(
     ate = case_when(
       delay_model=="Instantaneous" ~ theta,
       delay_model=="Lagged" ~ theta * mean(
-        effect_curve(x = seq(0.1,6,0.1),
+        effect_curve(x = c(1:6),
+        # effect_curve(x = seq(0.1,6,0.1),
                      type = "spline",
                      params = list(knots=c(0,2,2.1),slopes=c(0,10)))),
       delay_model=="Curved" ~ theta * mean(
-        effect_curve(x = seq(0.1,6,0.1),
+        effect_curve(x = c(1:6),
+        # effect_curve(x = seq(0.1,6,0.1),
                      type = "exp",
                      params = list(d=1.5))),
       delay_model=="Partially convex" ~ theta * mean(
-        effect_curve(x = seq(0.1,6,0.1),
+        effect_curve(x = c(1:6),
+        # effect_curve(x = seq(0.1,6,0.1),
                      type = "spline",
                      params = list(knots=c(0,2,4),slopes=c(0.1,0.4))))
     )
@@ -494,13 +492,13 @@ if (run_process_results) {
     theta <- sim$results[1,"theta"]
     thetas <- list(
       "I" = rep(theta,6),
-      "L" = theta * effect_curve(x = seq(1,6,1),
+      "L" = theta * effect_curve(x = c(1:6),
                                  type = "spline",
                                  params = list(knots=c(0,2,2.1),slopes=c(0,10))),
-      "C" = theta * effect_curve(x = seq(1,6,1),
+      "C" = theta * effect_curve(x = c(1:6),
                                  type = "exp",
                                  params = list(d=1.5)),
-      "P" = theta * effect_curve(x = seq(1,6,1),
+      "P" = theta * effect_curve(x = c(1:6),
                                  type = "spline",
                                  params = list(knots=c(0,2,4),slopes=c(0.1,0.4)))
     )
@@ -641,6 +639,21 @@ if (run_process_results) {
 
 if (run_viz) {
 
+  # Table for sim1
+  if (FALSE) {
+    p_data %>% filter(Method=="IT" & stat!="Power" & which=="LTE") %>%
+      mutate(value=round(value,3)) %>%
+      arrange(stat, delay_model, which)
+  }
+
+  # Coverage axis limits
+  y_lims <- case_when(
+    whichsim==2 ~ c(0.9,1),
+    whichsim==5 ~ c(0.7,1),
+    whichsim==7 ~ c(0.4,1),
+    TRUE ~ c(0,1)
+  )
+
   # Export: 8: x 4"
   ggplot(
     filter(p_data, stat!="Power"),
@@ -651,11 +664,16 @@ if (run_viz) {
       data=data.frame(y=0.95, stat="Coverage"),
       linetype="longdash", color="grey"
     ) +
-    geom_bar(stat="identity", position=position_dodge(),
-             width=0.8, color="white", size=0.35) +
+    geom_bar(stat="identity", position=position_dodge(), width=0.8,
+             color="#555555", size=0.35, alpha=0.8) +
+    # geom_text(
+    #   data=filter(p_data, stat=="Coverage", Method=="IT"),
+    #   aes(label=value)
+    # ) +
     facet_grid_sc(cols=vars(delay_model), rows=vars(stat), scales=list(y=list(
-      Bias = scale_y_continuous(labels = percent_format()),
-      Coverage = scale_y_continuous(labels = percent_format()),
+      Bias = scale_y_continuous(labels=percent_format()),
+      Coverage = scale_y_continuous(labels=percent_format(), # oob = oob_keep,
+                                    limits=y_lims),
       MSE = scale_y_continuous()
     ))) +
     theme(legend.position="bottom") +
@@ -677,8 +695,8 @@ if (run_viz) {
     summ,
     aes(x=Method, y=mse_wc, fill=Method) # x=which,
   ) +
-    geom_bar(stat="identity", position=position_dodge(),
-             width=0.8, color="white", size=0.35) +
+    geom_bar(stat="identity", position=position_dodge(), width=0.8,
+             color="#555555", size=0.35, alpha=0.8) +
     facet_grid(cols=vars(delay_model)) +
     theme(
       legend.position="bottom",
@@ -730,6 +748,9 @@ if (run_viz) {
 
 if (run_viz) {
 
+  # Coverage axis limits
+  y_lims <- c(0.9,1)
+
   # Export: 8: x 4"
   ggplot(
     filter(p_data, stat!="Power"),
@@ -740,11 +761,12 @@ if (run_viz) {
       data=data.frame(y=0.95, stat="Coverage"),
       linetype="longdash", color="grey"
     ) +
-    geom_bar(stat="identity", position=position_dodge(),
-             width=0.8, color="white", size=0.35) +
+    geom_bar(stat="identity", position=position_dodge(), width=0.8,
+             color="#555555", size=0.35, alpha=0.8) +
     facet_grid_sc(cols=vars(delay_model), rows=vars(stat), scales=list(y=list(
       Bias = scale_y_continuous(labels = percent_format()),
-      Coverage = scale_y_continuous(labels = percent_format()),
+      Coverage = scale_y_continuous(labels=percent_format(),
+                                    limits=y_lims),
       MSE = scale_y_continuous()
     ))) +
     theme(legend.position="bottom") +
@@ -1698,7 +1720,7 @@ if (run_realdata) {
       linetype = "dotted"
     ) +
     theme(legend.position="bottom") +
-    labs(y="Time effect: (odds ratio)", x="Calendar time", color="Model", fill="Model")
+    labs(y="Time effect: (odds ratio)", x="Study time", color="Model", fill="Model")
 
 }
 
