@@ -44,5 +44,4 @@ lagresults.csv
 simba.out/simba.out
 *.simba
 R/scratch.R
-realdata/wa_state.csv
-realdata/wa_state_description.txt
+realdata/*

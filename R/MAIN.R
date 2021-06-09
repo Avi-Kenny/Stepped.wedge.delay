@@ -9,16 +9,16 @@
 
 # Set global config
 cfg <- list(
-  level_set_which = "level_set_123",
+  level_set_which = "level_set_test",
   run_or_update = "run",
-  num_sim = 1000,
+  num_sim = 100,
   pkgs = c("dplyr", "stringr", "lme4", "rjags", "Iso", "sqldf", "mgcv", "MASS",
-           "fastDummies", "car", "splines", "glmmTMB"),
+           "fastDummies", "car", "splines", "glmmTMB", "rstan"),
   pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales", "glmmTMB"), # devtools::install_github("zeehio/facetscales")
   parallel = "none",
   stop_at_error = FALSE,
-  mcmc = list(n.adapt=1000, n.iter=1000, n.burn=1000, n.chains=2, thin=1)
-  # mcmc = list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3, thin=1)
+  # mcmc = list(n.adapt=1000, n.iter=1000, n.burn=1000, n.chains=2, thin=1)
+  mcmc = list(n.adapt=2000, n.iter=3000, n.burn=1000, n.chains=2, thin=1)
 )
 
 # Set cluster config
@@ -86,14 +86,14 @@ if (FALSE) {
 
   # Generate dataset
   data <- generate_dataset(
+    mu = 1,
     n_clusters = 24,
     n_time_points = 7,
-    n_ind_per_cluster = 30,
+    n_ind_per_cluster = 20, # 50
     theta = 0.5,
-    tau = 1,
-    mu = 1,
+    tau = 0.25, # 0.5
+    sigma = 1, # 2
     data_type = "normal",
-    sigma = 2,
     # delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
     delay_model = list(type="exp", params=list(d=1.5)),
     # n_extra_time_points = 2,
@@ -215,6 +215,33 @@ if (run_main) {
       # "MCMC-STEP (exp; mix prior 0.2)" = list(method="MCMC-STEP-MON",enforce="exp; mix prior 0.2")
     }
 
+    # !!!!! Testing new MEC Stan models
+    level_set_test <- list(
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = 20,
+      theta = 0.5,
+      tau = 0.25,
+      sigma = 1,
+      data_type = "normal",
+      method = list(
+        "ETI" = list(method="ETI"),
+        "JAGS (MEC 0.1)" = list(
+          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
+          mcmc = cfg$mcmc),
+        "Stan (simplex 5)" = list(
+          method = "MCMC-MON-Stan", enforce="simplex 5",
+          mcmc = cfg$mcmc)
+        # "Stan (simplex 3b)" = list(
+        #   method = "MCMC-MON-Stan", enforce="simplex 3b",
+        #   mcmc = cfg$mcmc)
+      ),
+      delay_model = delay_models,
+      n_extra_time_points = 0,
+      rte = NA,
+      return_extra = list("whole_curve"=list(whole_curve=TRUE))
+    )
+
     # Simulation 1: pitfalls of the immediate treatment (IT) model
     # Simulation 2: estimation of the TATE and LTE
     # Simulation 3: estimation of the entire effect curve
@@ -222,21 +249,18 @@ if (run_main) {
     level_set_123 <- list(
       n_clusters = 24,
       n_time_points = 7,
-      n_ind_per_cluster = 50,
+      n_ind_per_cluster = 20, # 50
       theta = 0.5,
-      tau = 0.5,
-      sigma = 2,
+      tau = 0.25, # 0.5
+      sigma = 1, # 2
       data_type = "normal",
       method = list(
         "IT" = list(method="IT"),
         "ETI" = list(method="ETI"),
         "NCS (4df)" = list(method="NCS-4df"),
-        "MEC (P=0.1)" = list(
-          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
-          mcmc = cfg$mcmc)
-        # "MEC (v2)" = list(
-        #   method = "MCMC-STEP-MON", enforce="exp; mix prior v2",
-        #   mcmc = cfg$mcmc)
+        "MEC (P=0.1)" = list(                                     # !!!!!
+          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1", # !!!!!
+          mcmc = cfg$mcmc)                                        # !!!!!
       ),
       delay_model = delay_models,
       n_extra_time_points = 0,
@@ -249,10 +273,10 @@ if (run_main) {
     level_set_4 <- list(
       n_clusters = 24,
       n_time_points = 7,
-      n_ind_per_cluster = 50,
+      n_ind_per_cluster = 20, # 50
       theta = seq(0,0.5,0.1),
-      tau = 0.5,
-      sigma = 2,
+      tau = 0.25, # 0.5
+      sigma = 1, # 2
       data_type = "normal",
       method = list(
         "IT" = list(method="IT"),
@@ -275,8 +299,8 @@ if (run_main) {
       n_time_points = 7,
       n_ind_per_cluster = seq(10,50,10),
       theta = 0.5,
-      tau = 0.5,
-      sigma = 2,
+      tau = 0.25, # 0.5
+      sigma = 1, # 2
       data_type = "normal",
       method = list(
         "IT" = list(method="IT"),
@@ -297,10 +321,10 @@ if (run_main) {
     level_set_5 <- list(
       n_clusters = 24,
       n_time_points = 7,
-      n_ind_per_cluster = 50,
+      n_ind_per_cluster = 20, # 50
       theta = 0.5,
-      tau = 0.5,
-      sigma = 2,
+      tau = 0.25, # 0.5
+      sigma = 1, # 2
       data_type = "normal",
       method = list(
         "ETI" = list(method="ETI", effect_reached=0),
@@ -318,10 +342,10 @@ if (run_main) {
     level_set_67 <- list(
       n_clusters = 24,
       n_time_points = 7,
-      n_ind_per_cluster = 50,
+      n_ind_per_cluster = 20, # 50
       theta = 0.5,
-      tau = 0.5,
-      sigma = 2,
+      tau = 0.25, # 0.5
+      sigma = 1, # 2
       data_type = "normal",
       method = list(
         "ETI" = list(method="ETI"),
@@ -347,10 +371,10 @@ if (run_main) {
     level_set_8 <- list(
       n_clusters = 24,
       n_time_points = 7,
-      n_ind_per_cluster = 50,
+      n_ind_per_cluster = 20, # 50
       theta = 0.5,
-      tau = 0.5,
-      sigma = 2,
+      tau = 0.25, # 0.5
+      sigma = 1, # 2
       data_type = "normal",
       method = list("ETI" = list(method="ETI")),
       delay_model = delay_models,
@@ -416,7 +440,7 @@ if (run_main) {
       },
 
       last = {
-        # sim %>% summary() %>% print()
+        # sim %>% summarize() %>% print()
         sim$results %>% head() %>% print()
         sim$errors %>% print()
       },
@@ -429,7 +453,7 @@ if (run_main) {
 
   if (cfg$run_or_update=="update") {
 
-    update_on_cluster(
+    update_sim_on_cluster(
 
       first = {
         sim <- readRDS(paste0(cluster_config$dir,'/sim.simba'))
@@ -437,7 +461,7 @@ if (run_main) {
       },
 
       main = {
-        sim %<>% update()
+        sim %<>% update_sim()
       },
 
       last = {},
@@ -462,26 +486,23 @@ if (run_process_results) {
   whichsim <- 2
 
   # Read in simulation object
-  sim <- readRDS("../simba.out/sim123_20210506.simba")
+  sim <- readRDS("../simba.out/sim_test_20210602.simba")
 
   # Generate true TATE values
-  # Now using step function approximations
+  # Note: now using step function approximations
   sim$results %<>% mutate(
     ate = case_when(
       delay_model=="Instantaneous" ~ theta,
       delay_model=="Lagged" ~ theta * mean(
-        effect_curve(x = c(1:6),
-        # effect_curve(x = seq(0.1,6,0.1),
+        effect_curve(x = c(1:6), # seq(0.1,6,0.1)
                      type = "spline",
                      params = list(knots=c(0,2,2.1),slopes=c(0,10)))),
       delay_model=="Curved" ~ theta * mean(
-        effect_curve(x = c(1:6),
-        # effect_curve(x = seq(0.1,6,0.1),
+        effect_curve(x = c(1:6), # seq(0.1,6,0.1)
                      type = "exp",
                      params = list(d=1.5))),
       delay_model=="Partially convex" ~ theta * mean(
-        effect_curve(x = c(1:6),
-        # effect_curve(x = seq(0.1,6,0.1),
+        effect_curve(x = c(1:6), # seq(0.1,6,0.1)
                      type = "spline",
                      params = list(knots=c(0,2,4),slopes=c(0.1,0.4))))
     )
@@ -535,7 +556,7 @@ if (run_process_results) {
   }
 
   # Summarize data
-  summ <- summary(
+  summ <- summarize(
     sim_obj = sim,
     mean = summ_mean,
     bias_pct = list(
@@ -579,7 +600,7 @@ if (run_process_results) {
     summ %<>% filter(rte=="none")
   }
   if (whichsim==7) {
-    summ %<>% filter(rte=="height") # !!!!! height+shape
+    summ %<>% filter(rte=="height")
   }
   summ %<>% mutate(
     method = factor(method, levels=s_methods),
@@ -615,10 +636,6 @@ if (run_process_results) {
     ETI = cb_colors[4],
     `NCS (4df)` = cb_colors[3],
     `MEC (P=0.1)` = cb_colors[6],
-    # `CUBIC-4df` = cb_colors[6],
-    # `NCS-2df` = cb_colors[7],
-    # `NCS-3df` = cb_colors[8],
-    # `NCS-4df` = cb_colors[5],
     `RETI (3 steps)` = cb_colors[6],
     `RETI (4 steps)` = cb_colors[7],
     `ETI (RTE; height)` = cb_colors[6],
@@ -948,7 +965,7 @@ if (run_viz) {
   )
 
   sim <- readRDS("../simba.out/sim_main_1026.simba")
-  summ <- summary(
+  summ <- summarize(
     sim_obj = sim,
     mean = list(all=TRUE, na.rm=TRUE),
     coverage = list(
@@ -1068,7 +1085,7 @@ if (run_viz) {
   for (sims in sim_files) {
 
     sim <- readRDS(sims)
-    summ <- summary(
+    summ <- summarize(
       sim_obj = sim,
       mean = list(all=TRUE, na.rm=TRUE),
       coverage = list(
@@ -2029,7 +2046,7 @@ if (run_testing) {
   )
 
   sim %<>% run()
-  s <- sim %>% summary()
+  s <- sim %>% summarize()
   spl_true <- -0.5 * effect_curve(
     x = c(0:6),
     type = "spline",
