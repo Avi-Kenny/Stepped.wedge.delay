@@ -1,4 +1,12 @@
 
+# Dirichlet
+x=rdirichlet(n=10000, alpha=c(4,4,1,1))
+x=rdirichlet(n=10000, alpha=c(400,400,100,100))
+x=rdirichlet(n=10000, alpha=c(.04,.04,.01,.01))
+c(mean(x[,1]),mean(x[,2]),mean(x[,3]),mean(x[,4]))
+
+
+
 # Test integration to reach theta_1
 beta=0.3
 w_1=0.9

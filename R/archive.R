@@ -77,6 +77,345 @@ delta_ss <- sapply(c(1:(n_knots-1)), function(l) {
 ##### Old methods from run_analysis() #####
 ###########################################.
 
+if (method$enforce=="simplex 6") {
+
+  # -11 simplex 6
+  stan_code <- quote("
+    data {
+      int I;
+      int N;
+      real y[N];
+      int i[N];
+      real j_2[N];
+      real j_3[N];
+      real j_4[N];
+      real j_5[N];
+      real j_6[N];
+      real j_7[N];
+      real s_1[N];
+      real s_2[N];
+      real s_3[N];
+      real s_4[N];
+      real s_5[N];
+      real s_6[N];
+    }
+    parameters {
+      real beta0;
+      real beta_j_2;
+      real beta_j_3;
+      real beta_j_4;
+      real beta_j_5;
+      real beta_j_6;
+      real beta_j_7;
+      real delta;
+      simplex[6] smp;
+      real alpha[I];
+      real<lower=0> sigma;
+      real<lower=0> tau;
+    }
+    transformed parameters {
+      real beta_s_1;
+      real beta_s_2;
+      real beta_s_3;
+      real beta_s_4;
+      real beta_s_5;
+      real beta_s_6;
+      vector[N] y_mean;
+      beta_s_1 = delta * smp[1];
+      beta_s_2 = delta * smp[2];
+      beta_s_3 = delta * smp[3];
+      beta_s_4 = delta * smp[4];
+      beta_s_5 = delta * smp[5];
+      beta_s_6 = delta * smp[6];
+      for (n in 1:N) {
+        y_mean[n] = beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+        beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] +
+        beta_j_7*j_7[n] + delta*(
+          smp[1]*s_1[n] + smp[2]*s_2[n] + smp[3]*s_3[n] +
+          smp[4]*s_4[n] + smp[5]*s_5[n] + smp[6]*s_6[n]
+        ) + alpha[i[n]];
+      }
+    }
+    model {
+      alpha ~ normal(0,tau);
+      smp ~ dirichlet([1,1,1,1,1,1]');
+      y ~ normal(y_mean,sigma);
+  }")
+
+}
+
+# -10 simplex
+if (method$enforce=="simplex") {
+
+  stan_code <- quote("
+        data {
+          int I;
+          int N;
+          real y[N];
+          int i[N];
+          real j_2[N];
+          real j_3[N];
+          real j_4[N];
+          real j_5[N];
+          real j_6[N];
+          real j_7[N];
+          real s_1[N];
+          real s_2[N];
+          real s_3[N];
+          real s_4[N];
+          real s_5[N];
+          real s_6[N];
+        }
+        parameters {
+          real beta0;
+          real beta_j_2;
+          real beta_j_3;
+          real beta_j_4;
+          real beta_j_5;
+          real beta_j_6;
+          real beta_j_7;
+          real delta;
+          simplex[6] smp;
+          real alpha[I];
+          real<lower=0> sigma;
+          real<lower=0> tau;
+        }
+        transformed parameters {
+          real beta_s_1;
+          real beta_s_2;
+          real beta_s_3;
+          real beta_s_4;
+          real beta_s_5;
+          real beta_s_6;
+          beta_s_1 = delta * smp[1];
+          beta_s_2 = delta * smp[2];
+          beta_s_3 = delta * smp[3];
+          beta_s_4 = delta * smp[4];
+          beta_s_5 = delta * smp[5];
+          beta_s_6 = delta * smp[6];
+        }
+        model {
+          alpha ~ normal(0,tau);
+          for (n in 1:N) {
+            y[n] ~ normal(
+              beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] + beta_j_4*j_4[n] +
+              beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n] + delta*(
+                smp[1]*s_1[n] + smp[2]*s_2[n] + smp[3]*s_3[n] +
+                smp[4]*s_4[n] + smp[5]*s_5[n] + smp[6]*s_6[n]
+              ) +
+              alpha[i[n]],
+              sigma
+            );
+          }
+      }")
+
+}
+
+# -9 simplex 2
+if (method$enforce=="simplex 2") {
+
+  stan_code <- quote("
+        data {
+          int I;
+          int N;
+          real y[N];
+          int i[N];
+          real j_2[N];
+          real j_3[N];
+          real j_4[N];
+          real j_5[N];
+          real j_6[N];
+          real j_7[N];
+          real s_1[N];
+          real s_2[N];
+          real s_3[N];
+          real s_4[N];
+          real s_5[N];
+          real s_6[N];
+        }
+        parameters {
+          real beta0;
+          real beta_j_2;
+          real beta_j_3;
+          real beta_j_4;
+          real beta_j_5;
+          real beta_j_6;
+          real beta_j_7;
+          real delta;
+          vector<lower=0.01,upper=100>[6] omega;
+          simplex[6] smp;
+          real alpha[I];
+          real<lower=0> sigma;
+          real<lower=0> tau;
+        }
+        transformed parameters {
+          real beta_s_1;
+          real beta_s_2;
+          real beta_s_3;
+          real beta_s_4;
+          real beta_s_5;
+          real beta_s_6;
+          beta_s_1 = delta * smp[1];
+          beta_s_2 = delta * smp[2];
+          beta_s_3 = delta * smp[3];
+          beta_s_4 = delta * smp[4];
+          beta_s_5 = delta * smp[5];
+          beta_s_6 = delta * smp[6];
+        }
+        model {
+          alpha ~ normal(0,tau);
+          smp ~ dirichlet(omega);
+          for (n in 1:N) {
+            y[n] ~ normal(
+              beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] + beta_j_4*j_4[n] +
+              beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n] + delta*(
+                smp[1]*s_1[n] + smp[2]*s_2[n] + smp[3]*s_3[n] +
+                smp[4]*s_4[n] + smp[5]*s_5[n] + smp[6]*s_6[n]
+              ) +
+              alpha[i[n]],
+              sigma
+            );
+          }
+      }")
+
+}
+
+# -8 simplex 3b
+if (method$enforce=="simplex 3b") {
+
+  stan_code <- quote("
+        data {
+          int I;
+          int N;
+          real y[N];
+          int i[N];
+          real j_2[N];
+          real j_3[N];
+          real j_4[N];
+          real j_5[N];
+          real j_6[N];
+          real j_7[N];
+          real s_1[N];
+          real s_2[N];
+          real s_3[N];
+          real s_4[N];
+          real s_5[N];
+          real s_6[N];
+        }
+        parameters {
+          real beta0;
+          real beta_j_2;
+          real beta_j_3;
+          real beta_j_4;
+          real beta_j_5;
+          real beta_j_6;
+          real beta_j_7;
+          real delta;
+          real<lower=0.01,upper=100> omega;
+          simplex[6] smp;
+          real alpha[I];
+          real<lower=0> sigma;
+          real<lower=0> tau;
+        }
+        transformed parameters {
+          real beta_s_1;
+          real beta_s_2;
+          real beta_s_3;
+          real beta_s_4;
+          real beta_s_5;
+          real beta_s_6;
+          vector[N] y_mean;
+          beta_s_1 = delta * smp[1];
+          beta_s_2 = delta * smp[2];
+          beta_s_3 = delta * smp[3];
+          beta_s_4 = delta * smp[4];
+          beta_s_5 = delta * smp[5];
+          beta_s_6 = delta * smp[6];
+          for (n in 1:N) {
+            y_mean[n] = beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] +
+            beta_j_7*j_7[n] + delta*(
+              smp[1]*s_1[n] + smp[2]*s_2[n] + smp[3]*s_3[n] +
+              smp[4]*s_4[n] + smp[5]*s_5[n] + smp[6]*s_6[n]
+            ) + alpha[i[n]];
+          }
+        }
+        model {
+          alpha ~ normal(0,tau);
+          smp ~ dirichlet(rep_vector(omega,6));
+          y ~ normal(y_mean,sigma);
+      }")
+
+}
+
+# -7 simplex 4
+if (method$enforce=="simplex 4") {
+
+  stan_code <- quote("
+        data {
+          int I;
+          int N;
+          real y[N];
+          int i[N];
+          real j_2[N];
+          real j_3[N];
+          real j_4[N];
+          real j_5[N];
+          real j_6[N];
+          real j_7[N];
+          real s_1[N];
+          real s_2[N];
+          real s_3[N];
+          real s_4[N];
+          real s_5[N];
+          real s_6[N];
+        }
+        parameters {
+          real beta0;
+          real beta_j_2;
+          real beta_j_3;
+          real beta_j_4;
+          real beta_j_5;
+          real beta_j_6;
+          real beta_j_7;
+          real delta;
+          real<lower=0.01,upper=100> omega;
+          simplex[6] smp;
+          real alpha[I];
+          real<lower=0> sigma;
+          real<lower=0> tau;
+        }
+        transformed parameters {
+          real beta_s_1;
+          real beta_s_2;
+          real beta_s_3;
+          real beta_s_4;
+          real beta_s_5;
+          real beta_s_6;
+          vector[N] y_mean;
+          beta_s_1 = delta * smp[1];
+          beta_s_2 = delta * smp[2];
+          beta_s_3 = delta * smp[3];
+          beta_s_4 = delta * smp[4];
+          beta_s_5 = delta * smp[5];
+          beta_s_6 = delta * smp[6];
+          for (n in 1:N) {
+            y_mean[n] = beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] +
+            beta_j_7*j_7[n] + delta*(
+              smp[1]*s_1[n] + smp[2]*s_2[n] + smp[3]*s_3[n] +
+              smp[4]*s_4[n] + smp[5]*s_5[n] + smp[6]*s_6[n]
+            ) + alpha[i[n]];
+          }
+        }
+        model {
+          alpha ~ normal(0,tau);
+          smp ~ dirichlet(rep_vector(omega,6));
+          y ~ normal(y_mean,sigma);
+      }")
+
+}
+
 # -6 MCMC-RTE-height+shape
 if (method$method=="MCMC-RTE-height+shape") {
 

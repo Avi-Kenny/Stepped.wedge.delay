@@ -11,14 +11,15 @@
 cfg <- list(
   level_set_which = "level_set_test",
   run_or_update = "run",
-  num_sim = 100,
+  num_sim = 1000,
   pkgs = c("dplyr", "stringr", "lme4", "rjags", "Iso", "sqldf", "mgcv", "MASS",
            "fastDummies", "car", "splines", "glmmTMB", "rstan"),
-  pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales", "glmmTMB"), # devtools::install_github("zeehio/facetscales")
+  pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales", "glmmTMB", # devtools::install_github("zeehio/facetscales")
+                     "readxl"),
   parallel = "none",
   stop_at_error = FALSE,
   # mcmc = list(n.adapt=1000, n.iter=1000, n.burn=1000, n.chains=2, thin=1)
-  mcmc = list(n.adapt=2000, n.iter=3000, n.burn=1000, n.chains=2, thin=1)
+  mcmc = list(n.adapt=2000, n.iter=3000, n.burn=1000, n.chains=3, thin=1)
 )
 
 # Set cluster config
@@ -226,15 +227,15 @@ if (run_main) {
       data_type = "normal",
       method = list(
         "ETI" = list(method="ETI"),
-        "JAGS (MEC 0.1)" = list(
-          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
+        "Stan (simplex 5b)" = list(
+          method = "MCMC-MON-Stan", enforce="simplex 5b",
           mcmc = cfg$mcmc),
-        "Stan (simplex 5)" = list(
-          method = "MCMC-MON-Stan", enforce="simplex 5",
+        "Stan (simplex 5d)" = list(
+          method = "MCMC-MON-Stan", enforce="simplex 5d",
+          mcmc = cfg$mcmc),
+        "Stan (simplex 6)" = list(
+          method = "MCMC-MON-Stan", enforce="simplex 6",
           mcmc = cfg$mcmc)
-        # "Stan (simplex 3b)" = list(
-        #   method = "MCMC-MON-Stan", enforce="simplex 3b",
-        #   mcmc = cfg$mcmc)
       ),
       delay_model = delay_models,
       n_extra_time_points = 0,
@@ -1300,64 +1301,65 @@ if (run_viz) {
 
 
 
-###############################################.
-##### MAIN: Real data analysis (WA state) #####
-###############################################.
+######################################################.
+##### MAIN: Real data analysis: helper functions #####
+######################################################.
 
 if (run_realdata) {
 
-  # Read/process data
-  df <- read.csv("../realdata/wa_state.csv")
-  df %<>% rename(
-    "y" = ct,
-    "i" = hdist,
-    "j" = timex,
-    "l" = timeontrtx,
-    "x_ij" = treatx
-  )
-  df %<>% filter(!is.na(y))
-  # df %<>% group_by(i,j,l,x_ij)
-  df %<>% group_by(i,j,l,x_ij,site)
-  df %<>% summarize(
-    n = n(),
-    y = sum(y)
-  )
-  df %<>% mutate(
-    j = j+1
-  )
-
-  # Helper function to extract estimates
-  # type is one of c("IT","ETI", "NCS")
-  est <- function(model, type) {
-
-    J <- 15
+  #' Extract estimates and SEs
+  #'
+  #' @param model One of c("")
+  #' @param type One of c("IT", "ETI", "NCS", "RETI")
+  #' @param J Number of unique study time points
+  #' @param len Number of unique exposure time points (excluding zero)
+  #' @param R The "effect reached" value for the RETI model
+  est <- function(model, type, J, len, R=NA) {
 
     # Extract treatment effect estimates
     {
+      coeff_names <- names(summary(model)$coefficients$cond[,1])
+
       if (type=="IT") {
+
         delta <- as.numeric(summary(model)$coefficients$cond[,1]["x_ij"])
         se <- as.numeric(sqrt(diag(summary(model)$vcov[[1]])["x_ij"]))
-        delta <- rep(delta,14)
-        se <- rep(se,14)
+        delta <- rep(delta,len)
+        se <- rep(se,len)
+
       } else if (type=="ETI") {
-        delta <- as.numeric(summary(model)$coefficients$cond[,1][16:29])
-        vcov <- summary(model)$vcov[[1]][16:29,16:29]
+
+        ind_tx <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
+        delta <- as.numeric(summary(model)$coefficients$cond[,1][ind_tx])
+        vcov <- summary(model)$vcov[[1]][ind_tx,ind_tx]
         se <- as.numeric(sqrt(diag(vcov)))
+
+      } else if (type=="RETI") {
+
+        ind_tx <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
+        delta <- as.numeric(summary(model)$coefficients$cond[,1][ind_tx])
+        vcov <- summary(model)$vcov[[1]][ind_tx,ind_tx]
+        se <- as.numeric(sqrt(diag(vcov)))
+
       } else if (type=="NCS") {
-        ns_basis <- ns(c(0:(J-1)), knots=c((J-1)/4,(2*(J-1))/4,(3*(J-1))/4))
-        b_hat <- as.numeric(summary(model)$coefficients$cond[,1][16:19])
-        sigma_b_hat <- summary(model)$vcov[[1]][16:19,16:19]
-        B <- matrix(NA, nrow=14, ncol=4)
-        for (i in 1:14) { for (j in 1:4) { B[i,j] <- ns_basis[i+1,j] }}
+
+        ns_basis <- ns(c(0:len), knots=c(len/4,(2*len)/4,(3*len)/4))
+        ind_spl <- c(1:length(coeff_names))[coeff_names %in% c("c1","c2","c3","c4")]
+        b_hat <- as.numeric(summary(model)$coefficients$cond[,1][ind_spl])
+        sigma_b_hat <- summary(model)$vcov[[1]][ind_spl,ind_spl]
+        B <- matrix(NA, nrow=len, ncol=4)
+        for (i in 1:len) { for (j in 1:4) { B[i,j] <- ns_basis[i+1,j] }}
         delta <- as.numeric(B %*% b_hat)
         vcov <- B %*% sigma_b_hat %*% t(B)
         se <- sqrt(diag(vcov))
+
       }
     }
 
     # Calculate time trend estimates and CIs
-    time <- c(0,as.numeric(summary(model)$coefficients$cond[,1][2:15]))
-    se2 <- c(0,as.numeric(sqrt(diag(summary(model)$vcov[[1]])[2:15])))
+    ind_time <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(j)"]
+    time <- c(0,as.numeric(summary(model)$coefficients$cond[,1][ind_time]))
+    se2 <- c(0,as.numeric(sqrt(diag(summary(model)$vcov[[1]])[ind_time])))
 
     # Calculate TATE and LTE
     if (type=="IT") {
@@ -1365,12 +1367,25 @@ if (run_realdata) {
       se_ate_hat <- se[1]
       lte_hat <- delta[1]
       se_lte_hat <- se[1]
-    } else {
-      A <- (1/(J-1)) * matrix(rep(1,J-1), nrow=1)
+    } else if (type=="RETI") {
+      A <- (1/len) * matrix(c(rep(1,R-1),len+1-R), nrow=1)
       ate_hat <- (A %*% delta)[1,1]
       se_ate_hat <- sqrt(A %*% vcov %*% t(A))[1,1]
-      lte_hat <- delta[J-1]
-      se_lte_hat <- sqrt(se[J-1])
+      lte_hat <- delta[length(delta)]
+      se_lte_hat <- se[length(delta)]
+    } else if (type %in% c("ETI","NCS")) {
+      A <- (1/len) * matrix(rep(1,len), nrow=1)
+      ate_hat <- (A %*% delta)[1,1]
+      se_ate_hat <- sqrt(A %*% vcov %*% t(A))[1,1]
+      lte_hat <- delta[len]
+      se_lte_hat <- se[len]
+    }
+
+    # RETI modification
+    if (type=="RETI") {
+      len2 <- length(delta)
+      delta <- c(delta[1:(len2-1)],rep(delta[len2],len+1-R))
+      se <- c(se[1:(len2-1)],rep(se[len2],len+1-R))
     }
 
     return(list(
@@ -1380,44 +1395,302 @@ if (run_realdata) {
       time = time,
       ci2_l = time-1.96*se2,
       ci2_u = time+1.96*se2,
-      ate_hat = round(ate_hat,4),
-      ate_l = round(ate_hat-1.96*se_ate_hat,4),
-      ate_u = round(ate_hat+1.96*se_ate_hat,4),
-      lte_hat = round(lte_hat,4),
-      lte_l = round(lte_hat-1.96*se_lte_hat,4),
-      lte_u = round(lte_hat+1.96*se_lte_hat,4)
+      ate_hat = ate_hat,
+      ate_l = ate_hat-1.96*se_ate_hat,
+      ate_u = ate_hat+1.96*se_ate_hat,
+      lte_hat = lte_hat,
+      lte_l = lte_hat-1.96*se_lte_hat,
+      lte_u = lte_hat+1.96*se_lte_hat
     ))
 
   }
 
+  #' Print model results (TATE and LTE)
+  #'
+  #' @param models A named list of estimate objects (each returned by `est()`)
+  #' @param which Which data analysis; one of c("disinvestment","wa_state")
+  print_results <- function(models, which) {
+
+    # Code specific to analyses
+    if (which=="disinvestment") {
+      trans <- function(x) {x}
+    } else if (which=="wa_state") {
+      trans <- function(x) {exp(x)}
+    }
+
+    # Print results
+    for (i in 1:length(models)) {
+
+      print(paste("Model:",names(models)[i]))
+      print(paste0("TATE: ", round(trans(models[[i]]$ate_hat),4),
+                   " (", round(trans(models[[i]]$ate_l),4), " -- ",
+                   round(trans(models[[i]]$ate_u),4), ")"))
+      print(paste0("LTE: ", round(trans(models[[i]]$lte_hat),4),
+                   " (", round(trans(models[[i]]$lte_l),4), " -- ",
+                   round(trans(models[[i]]$lte_u),4), ")"))
+
+    }
+
+  }
+
+  #' Print model results (TATE and LTE)
+  #'
+  #' @param models A named list of estimate objects (each returned by `est()`)
+  #' @param which Which data analysis; one of c("disinvestment","wa_state")
+  #' @param ncol Number of columns for facet_wrap()
+  #' @notes Export at 8" x 4"
+  print_graphs <- function(models, which, ncol) {
+
+    # Helper function to extract attributes; models accessed globally
+    v <- function(attr) {
+      as.numeric(sapply(models, function(m) { m[[attr]] }))
+    }
+
+    # Extract info
+    labels <- names(models)
+    n_models <- length(models)
+    len_tx <- length(models[[1]]$delta)
+    len_time <- length(models[[1]]$time)
+
+    # Code specific to analyses
+    if (which=="disinvestment") {
+      trans <- function(x) {x}
+      lab_y_tx <- "Treatment effect"
+      lab_y_time <- "Time effect"
+    } else if (which=="wa_state") {
+      trans <- function(x) {exp(x)}
+      lab_y_tx <- "Treatment effect (odds ratio)"
+      lab_y_time <- "Time effect: (odds ratio)"
+    }
+
+    # Treatment effect estimates
+    plot_tx <- ggplot(
+      data.frame(
+        x = rep(c(0:(len_tx-1)),n_models),
+        y = trans(v("delta")),
+        ci_l = trans(v("ci_l")),
+        ci_u = trans(v("ci_u")),
+        model = rep(factor(labels, levels=labels), each=len_tx)
+      ),
+      aes(x=x, y=y, color=model)
+    ) +
+      facet_wrap(~model, ncol=ncol) +
+      geom_line() +
+      geom_ribbon(
+        aes(ymin=ci_l, ymax=ci_u, fill=as.factor(model)),
+        alpha = 0.2,
+        linetype = "dotted"
+      ) +
+      theme(legend.position="bottom") +
+      labs(y=lab_y_tx, x="Exposure time", color="Model", fill="Model")
+
+    # Time trend estimates
+    # Export: 8" x 3"
+    plot_time <- ggplot(
+      data.frame(
+        x = rep(c(1:len_time),n_models),
+        y = trans(v("time")),
+        ci_l = trans(v("ci2_l")),
+        ci_u = trans(v("ci2_u")),
+        model = rep(factor(labels, levels=labels), each=len_time)
+      ),
+      aes(x=x, y=y, color=model)
+    ) +
+      facet_wrap(~model, ncol=ncol) +
+      geom_line() +
+      geom_ribbon(
+        aes(ymin=ci_l, ymax=ci_u, fill=as.factor(model)),
+        alpha = 0.2,
+        linetype = "dotted"
+      ) +
+      theme(legend.position="bottom") +
+      labs(y=lab_y_time, x="Study time", color="Model", fill="Model")
+
+    # Display graphs
+    print(plot_tx)
+    print(plot_time)
+
+  }
+
+}
+
+
+
+#######################################################.
+##### MAIN: Real data analysis #1 (Disinvestment) #####
+#######################################################.
+
+if (run_realdata) {
+
+  # Read/process data
+  df <- read_excel("../realdata/disinvestment/S2 Data.xlsx")
+  df %<>% filter(study1==1)
+  df %<>% mutate(
+    y = log(acute_los),
+    i = factor(index_ward),
+    j = factor(sw_step)
+  )
+  df %<>% rename(
+    "x_ij" = no_we_exposure
+  )
+  df %<>% subset(select=c(y,i,j,x_ij))
+  df2 <- df %>% group_by(i,j) %>%
+    dplyr::summarize(x_ij=x_ij[1]) %>%
+    arrange(i,j)
+  df2$l <- c(0,rep(NA,nrow(df2)-1))
+  for (row in 2:nrow(df2)) {
+    if (df2[row,"i"]==df2[row-1,"i"]) {
+      df2[row,"l"] <- df2[row-1,"l"] + df2[row,"x_ij"]
+    } else {
+      df2[row,"l"] <- 0
+    }
+  }
+  df2$x_ij <- NULL
+  df %<>% inner_join(df2, by=c("i","j"))
+
+  # IT model
   {
-    # IT model
+    model_it <- glmmTMB(
+      y ~ factor(j) + x_ij + (1|i),
+      data = df
+    )
+    est_it <- est(model_it, "IT", J=7, len=length(unique(df$l))-1)
+  }
+
+  # ETI model
+  {
+    model_eti <- glmmTMB(
+      y ~ factor(j) + factor(l) + (1|i),
+      data = df
+    )
+    est_eti <- est(model_eti, "ETI", J=7, len=length(unique(df$l))-1)
+  }
+
+  # ETI (RTE; height) model
+  {
+    # !!!!! Debug
+    model_rte <- glmmTMB(
+      y ~ factor(j) + factor(l) + (x_ij|i),
+      data = df
+    )
+    est_rte <- est(model_rte, "ETI", J=7, len=length(unique(df$l))-1)
+  }
+
+  # RETI model (R=3)
+  {
+    r <- 3
+    df_reti <- df %>% mutate(l = ifelse(l>=r,r,l))
+    model_reti <- glmmTMB(
+      y ~ factor(j) + factor(l) + (1|i),
+      data = df_reti
+    )
+    est_reti <- est(model_reti, "RETI", J=7, len=length(unique(df$l))-1, R=r)
+  }
+
+  # Natural cubic spline (4df)
+  {
+    J <- 7
+    len <- length(unique(df$l))-1
+    ns_basis <- ns(c(0:len), knots=c(len/4,(2*len)/4,(3*len)/4))
+    df$c1 <- ns_basis[df$l+1,1]
+    df$c2 <- ns_basis[df$l+1,2]
+    df$c3 <- ns_basis[df$l+1,3]
+    df$c4 <- ns_basis[df$l+1,4]
+    model_ncs <- glmmTMB(
+      y ~ factor(j) + c1+c2+c3+c4 + (1|i),
+      data = df
+    )
+    est_ncs <- est(model_ncs, "NCS", J=7, len=len)
+  }
+
+  # Monotone Effect Curve Bayesian model (P=0.1)
+  {
+    # !!!!!
+  }
+
+  # Display results
+  # !!!!! Add MEC
+  models <- list("IT"=est_it, "ETI"=est_eti, "ETI (RTE)"=est_rte,
+                 "RETI (3)"=est_reti, "NCS (4df)"=est_ncs)
+  print_results(models=models, which="disinvestment")
+  print_graphs(models=models, which="disinvestment", ncol=3)
+
+}
+
+
+
+##################################################.
+##### MAIN: Real data analysis #2 (WA state) #####
+##################################################.
+
+if (run_realdata) {
+
+  # Read/process data
+  df <- read.csv("../realdata/wa_state/wa_state.csv")
+  df %<>% rename(
+    "y" = ct,
+    "i" = hdist,
+    "j" = timex,
+    "l" = timeontrtx,
+    "x_ij" = treatx
+  )
+  df %<>% filter(!is.na(y))
+  df %<>% group_by(i,j,l,x_ij,site)
+  df %<>% dplyr::summarize(
+    n = n(),
+    y = sum(y)
+  )
+  df %<>% mutate(
+    j = j+1
+  )
+
+  # IT model
+  {
     model_it <- glmmTMB(
       cbind(y,n-y) ~ factor(j) + x_ij + (1|i) + (1|i:site),
       data = df,
       family = "binomial" # binomial(link="log")
     )
-    est_it <- est(model_it, "IT")
+    est_it <- est(model_it, "IT", J=15, len=length(unique(df$l))-1)
+  }
 
-    # ETI model
+  # ETI model
+  {
     model_eti <- glmmTMB(
       cbind(y,n-y) ~ factor(j) + factor(l) + (1|i) + (1|i:site),
       data = df,
       family = "binomial"
     )
-    est_eti <- est(model_eti, "ETI")
+    est_eti <- est(model_eti, "ETI", J=15, len=length(unique(df$l))-1)
+  }
 
-    # # ETI (RTE; height) model
-    # model_rte <- glmmTMB(
-    #   cbind(y,n-y) ~ factor(j) + factor(l) + (x_ij|i),
-    #   data = df,
-    #   family = "binomial"
-    # )
-    # est_rte <- est(model_rte, "ETI")
+  # ETI (RTE; height) model
+  {
+    model_rte <- glmmTMB(
+      cbind(y,n-y) ~ factor(j) + factor(l) + (x_ij|i),
+      data = df,
+      family = "binomial"
+    )
+    est_rte <- est(model_rte, "ETI", J=15, len=length(unique(df$l))-1)
+  }
 
-    # Natural cubic spline (4df)
+  # RETI model (R=8)
+  {
+    r <- 8
+    df_reti <- df %>% mutate(l = ifelse(l>=r,r,l))
+    model_reti <- glmmTMB(
+      cbind(y,n-y) ~ factor(j) + factor(l) + (1|i) + (1|i:site),
+      data = df_reti,
+      family = "binomial"
+    )
+    est_reti <- est(model_reti, "RETI", J=15, len=length(unique(df$l))-1, R=r)
+  }
+
+  # Natural cubic spline (4df)
+  {
     J <- 15
-    ns_basis <- ns(c(0:(J-1)), knots=c((J-1)/4,(2*(J-1))/4,(3*(J-1))/4))
+    len <- length(unique(df$l))-1
+    ns_basis <- ns(c(0:len), knots=c(len/4,(2*len)/4,(3*len)/4))
     df$c1 <- ns_basis[df$l+1,1]
     df$c2 <- ns_basis[df$l+1,2]
     df$c3 <- ns_basis[df$l+1,3]
@@ -1427,9 +1700,11 @@ if (run_realdata) {
       data = df,
       family = "binomial"
     )
-    est_ncs <- est(model_ncs, "NCS")
+    est_ncs <- est(model_ncs, "NCS", J=15, len=len)
+  }
 
-    # Monotone Effect Curve Bayesian model (P=0.1)
+  # Monotone Effect Curve Bayesian model (P=0.1)
+  {
     df %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
     df %<>% mutate(
       s_1=as.integer(l>=1), s_2=as.integer(l>=2), s_3=as.integer(l>=3),
@@ -1538,8 +1813,8 @@ if (run_realdata) {
       }
     ")
 
-    mcmc <- list(n.adapt=5000, n.iter=5000, n.burn=5000, n.chains=3, thin=1)
-    # mcmc <- list(n.adapt=2000, n.iter=2000, n.burn=2000, n.chains=3, thin=1)
+    # mcmc <- list(n.adapt=5000, n.iter=5000, n.burn=5000, n.chains=3, thin=1)
+    mcmc <- list(n.adapt=500, n.iter=1000, n.burn=500, n.chains=2, thin=1)
     jm <- jags.model(
       file = textConnection(jags_code),
       data = list(
@@ -1669,75 +1944,14 @@ if (run_realdata) {
         geom_line() +
         labs(title=var)
     }
-
   }
 
-  # Print results
-  print("Model: IT")
-  print(paste0("TATE: ", exp(est_it$ate_hat), " (", exp(est_it$ate_l), " -- ",
-               exp(est_it$ate_u), ")"))
-  print(paste0("LTE: ", exp(est_it$lte_hat), " (", exp(est_it$lte_l), " -- ",
-               exp(est_it$lte_u), ")"))
-  print("Model: ETI")
-  print(paste0("TATE: ", exp(est_eti$ate_hat), " (", exp(est_eti$ate_l), " -- ",
-               exp(est_eti$ate_u), ")"))
-  print(paste0("LTE: ", exp(est_eti$lte_hat), " (", exp(est_eti$lte_l), " -- ",
-               exp(est_eti$lte_u), ")"))
-  print("Model: NCS")
-  print(paste0("TATE: ", exp(est_ncs$ate_hat), " (", exp(est_ncs$ate_l), " -- ",
-               exp(est_ncs$ate_u), ")"))
-  print(paste0("LTE: ", exp(est_ncs$lte_hat), " (", exp(est_ncs$lte_l), " -- ",
-               exp(est_ncs$lte_u), ")"))
-  print("Model: MEC")
-  print(paste0("TATE: ", exp(est_mec$ate_hat), " (", exp(est_mec$ate_l), " -- ",
-               exp(est_mec$ate_u), ")"))
-  print(paste0("LTE: ", exp(est_mec$lte_hat), " (", exp(est_mec$lte_l), " -- ",
-               exp(est_mec$lte_u), ")"))
-
-  # Treatment effect estimates
-  # Export: 8" x 3"
-  models <- c("IT", "ETI","NCS (4df)","MEC (P=0.1)")
-  ggplot(
-    data.frame(
-      x = rep(c(0:14),4),
-      y = exp(c(est_it$delta, est_eti$delta, est_ncs$delta, est_mec$delta)),
-      ci_l = exp(c(est_it$ci_l, est_eti$ci_l, est_ncs$ci_l, est_mec$ci_l)),
-      ci_u = exp(c(est_it$ci_u, est_eti$ci_u, est_ncs$ci_u, est_mec$ci_u)),
-      model = rep(factor(models, levels=models), each=15)
-    ),
-    aes(x=x, y=y, color=model)
-  ) +
-    facet_wrap(~model, ncol=4) +
-    geom_line() +
-    geom_ribbon(
-      aes(ymin=ci_l, ymax=ci_u, fill=as.factor(model)),
-      alpha = 0.2,
-      linetype = "dotted"
-    ) +
-    theme(legend.position="bottom") +
-    labs(y="Treatment effect (odds ratio)", x="Exposure time", color="Model", fill="Model")
-
-  # Time trend estimates
-  # Export: 8" x 3"
-  ggplot(
-    data.frame(
-      x = rep(c(1:15),4),
-      y = exp(c(est_it$time, est_eti$time, est_ncs$time, est_mec$time)),
-      ci_l = exp(c(est_it$ci2_l, est_eti$ci2_l, est_ncs$ci2_l, est_mec$ci2_l)),
-      ci_u = exp(c(est_it$ci2_u, est_eti$ci2_u, est_ncs$ci2_u, est_mec$ci2_u)),
-      model = rep(factor(models, levels=models), each=15)
-    ),
-    aes(x=x, y=y, color=model)
-  ) +
-    facet_wrap(~model, ncol=4) +
-    geom_line() +
-    geom_ribbon(
-      aes(ymin=ci_l, ymax=ci_u, fill=as.factor(model)),
-      alpha = 0.2,
-      linetype = "dotted"
-    ) +
-    theme(legend.position="bottom") +
-    labs(y="Time effect: (odds ratio)", x="Study time", color="Model", fill="Model")
+  # Display results
+  # !!!!! Add MEC
+  models <- list("IT"=est_it, "ETI"=est_eti, "ETI (RTE)"=est_rte,
+                 "RETI (8)"=est_reti, "NCS (4df)"=est_ncs)
+  print_results(models=models, which="wa_state")
+  print_graphs(models=models, which="wa_state", ncol=3)
 
 }
 
