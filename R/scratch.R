@@ -1,4 +1,33 @@
 
+# 2 x 3 stepped wedge
+{
+  mu <- 2
+  beta2 <- -5
+  beta3 <- 10
+  delta <- 1
+  df <- data.frame(
+    i = integer(),
+    j_2 = integer(),
+    j_3 = integer(),
+    x_ij = integer(),
+    y = double()
+  )
+  for (i in 1:2) {
+    for (j in 1:3) {
+      for (k in 1:10) {
+        x_ij <- as.integer((i==1 && j>=2) || (i==2 && j>=3))
+        j_2 <- as.integer(j==2)
+        j_3 <- as.integer(j==3)
+        m <- mu + j_2*beta2 + j_3*beta3 + x_ij*delta
+        y <- rnorm(n=1, mean=m, sd=0.1)
+        df[nrow(df)+1,] <- c(i, j_2, j_3, x_ij, y)
+      }
+    }
+  }
+  summary(lm(y~j_2+j_3+x_ij, data=df))
+  mean(filter(df, i==1 & j_2==1)$y) - mean(filter(df, i==2 & j_2==1)$y)
+}
+
 # Dirichlet
 x=rdirichlet(n=10000, alpha=c(4,4,1,1))
 x=rdirichlet(n=10000, alpha=c(400,400,100,100))

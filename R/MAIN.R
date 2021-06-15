@@ -108,75 +108,6 @@ if (FALSE) {
   J <- data$params$n_time_points
   data_type <- "normal"
 
-  # Visualize model fits
-  {
-    df <- data$data # !!!!!
-    df %<>% group_by(i,j,l,x_ij)
-    df %<>% summarize(n=n(), y=sum(y))
-
-    # ETI
-    model_tmb <- glmmTMB(
-      cbind(y,n-y) ~ factor(j) + factor(l) + (1|i),
-      data = df,
-      family = "binomial"
-    )
-    coeffs_eti <- as.numeric(summary(model_tmb)$coefficients$cond[,1][8:13])
-
-    # Manual cubic polynomial
-    df %<>% mutate(
-      c1 = l,
-      c2 = l^2,
-      c3 = l^3,
-      c4 = pmax(0,(l-3)^3),
-      # c5 = pmax(0,(l-4)^3)
-    )
-    model_tmb <- glmmTMB(
-      cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4 + (1|i),
-      # cbind(y,n-y) ~ factor(j) + c1+c2+c3+c4+c5 + (1|i),
-      data = df,
-      family = "binomial"
-    )
-    mb <- as.numeric(summary(model_tmb)$coefficients$cond[,1][8:12])
-    coeffs_cub <- sapply(c(1:6), function(l) {
-      mb[1]*l + mb[2]*l^2 + mb[3]*l^3 + mb[4]*(max(0,(l-3)^3))
-      # + mb[4]*(max(0,(l-2)^3)) + mb[5]*(max(0,(l-4)^3))
-    })
-
-    # Smoothing spline
-    model_ss <- gamm(
-      cbind(y,n-y) ~ factor(j) + s(l, k=7, fx=FALSE, bs="cr", m=c(3,2), pc=0),
-      random = list(i=~1),
-      data = df,
-      family = "binomial"
-    )
-    coeffs_ss <- sapply(c(1:(n_knots-1)), function(l) {
-      predict(model_ss$gam, newdata=list(j=1, l=l), type = "terms")[2]
-    })
-
-    # Regression spline
-    model_rs <- gamm(
-      cbind(y,n-y) ~ factor(j) + s(l, k=4, fx=TRUE, bs="cr", pc=0),
-      random = list(i=~1),
-      data = df,
-      family = "binomial"
-    )
-    coeffs_rs <- sapply(c(1:(n_knots-1)), function(l) {
-      predict(model_rs$gam, newdata=list(j=1, l=l), type = "terms")[2]
-    })
-
-    # Plot
-    ggplot(
-      data.frame(
-        x = rep(c(0:6),4),
-        y = c(c(0,coeffs_eti), c(0,coeffs_ss), c(0,coeffs_rs), c(0,coeffs_cub)),
-        which = rep(c("ETI","SS","RS","CUBE"), each=7)
-      ),
-      aes(x=x, y=y, color=which)
-    ) +
-      geom_line() +
-      labs(y="log(OR)", x="Exposure time", color="Model")
-  }
-
 }
 
 
@@ -487,7 +418,7 @@ if (run_process_results) {
   whichsim <- 2
 
   # Read in simulation object
-  sim <- readRDS("../simba.out/sim_test_20210602.simba")
+  sim <- readRDS("../simba.out/sim_test_20210610.simba")
 
   # Generate true TATE values
   # Note: now using step function approximations
@@ -1438,7 +1369,6 @@ if (run_realdata) {
   #' @param models A named list of estimate objects (each returned by `est()`)
   #' @param which Which data analysis; one of c("disinvestment","wa_state")
   #' @param ncol Number of columns for facet_wrap()
-  #' @notes Export at 8" x 4"
   print_graphs <- function(models, which, ncol) {
 
     # Helper function to extract attributes; models accessed globally
@@ -1464,6 +1394,7 @@ if (run_realdata) {
     }
 
     # Treatment effect estimates
+    # Export: 7" x 4"
     plot_tx <- ggplot(
       data.frame(
         x = rep(c(0:(len_tx-1)),n_models),
@@ -1481,11 +1412,11 @@ if (run_realdata) {
         alpha = 0.2,
         linetype = "dotted"
       ) +
-      theme(legend.position="bottom") +
+      theme(legend.position="none") + # bottom
       labs(y=lab_y_tx, x="Exposure time", color="Model", fill="Model")
 
     # Time trend estimates
-    # Export: 8" x 3"
+    # Export: 7" x 4"
     plot_time <- ggplot(
       data.frame(
         x = rep(c(1:len_time),n_models),
@@ -1503,7 +1434,7 @@ if (run_realdata) {
         alpha = 0.2,
         linetype = "dotted"
       ) +
-      theme(legend.position="bottom") +
+      theme(legend.position="none") + # bottom
       labs(y=lab_y_time, x="Study time", color="Model", fill="Model")
 
     # Display graphs
@@ -1603,15 +1534,183 @@ if (run_realdata) {
     est_ncs <- est(model_ncs, "NCS", J=7, len=len)
   }
 
-  # Monotone Effect Curve Bayesian model (P=0.1)
+  # Monotone Effect Curve Bayesian model
   {
-    # !!!!!
+    # Setup
+    mcmc <- cfg$mcmc
+    df %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
+    df %<>% mutate(
+      s_1 = as.integer(l>=1),
+      s_2 = as.integer(l>=2),
+      s_3 = as.integer(l>=3),
+      s_4 = as.integer(l>=4),
+      s_5 = as.integer(l>=5),
+      s_6 = as.integer(l>=6)
+    )
+    options(mc.cores = parallel::detectCores()-1)
+    Sys.setenv(LOCAL_CPPFLAGS = '-march=native')
+    rstan_options(auto_write=TRUE)
+
+    # Put data into Stan format
+    stan_data <- list(
+      I = length(unique(df$i)),
+      N = nrow(df),
+      y = df$y,
+      i = as.integer(df$i),
+      j_2 = df$j_2,
+      j_3 = df$j_3,
+      j_4 = df$j_4,
+      j_5 = df$j_5,
+      j_6 = df$j_6,
+      j_7 = df$j_7,
+      s_1 = df$s_1,
+      s_2 = df$s_2,
+      s_3 = df$s_3,
+      s_4 = df$s_4,
+      s_5 = df$s_5,
+      s_6 = df$s_6
+    )
+
+    # Stan model
+    stan_code <- quote("
+      data {
+        int I;
+        int N;
+        real y[N];
+        int i[N];
+        real j_2[N];
+        real j_3[N];
+        real j_4[N];
+        real j_5[N];
+        real j_6[N];
+        real j_7[N];
+        real s_1[N];
+        real s_2[N];
+        real s_3[N];
+        real s_4[N];
+        real s_5[N];
+        real s_6[N];
+      }
+      parameters {
+        real beta0;
+        real beta_j_2;
+        real beta_j_3;
+        real beta_j_4;
+        real beta_j_5;
+        real beta_j_6;
+        real beta_j_7;
+        real delta;
+        real<lower=0.01,upper=100> omega;
+        simplex[6] smp;
+        real alpha[I];
+        real<lower=0> sigma;
+        real<lower=0> tau;
+      }
+      transformed parameters {
+        real beta_s_1;
+        real beta_s_2;
+        real beta_s_3;
+        real beta_s_4;
+        real beta_s_5;
+        real beta_s_6;
+        vector[N] y_mean;
+        beta_s_1 = delta * smp[1];
+        beta_s_2 = delta * smp[2];
+        beta_s_3 = delta * smp[3];
+        beta_s_4 = delta * smp[4];
+        beta_s_5 = delta * smp[5];
+        beta_s_6 = delta * smp[6];
+        for (n in 1:N) {
+          y_mean[n] = beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+          beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] +
+          beta_j_7*j_7[n] + delta*(
+            smp[1]*s_1[n] + smp[2]*s_2[n] + smp[3]*s_3[n] +
+            smp[4]*s_4[n] + smp[5]*s_5[n] + smp[6]*s_6[n]
+          ) + alpha[i[n]];
+        }
+      }
+      model {
+        alpha ~ normal(0,tau);
+        smp ~ dirichlet([5*omega,5*omega,5*omega,1*omega,1*omega,1*omega]');
+        y ~ normal(y_mean,sigma);
+    }")
+
+    fit <- stan(
+      model_code = stan_code,
+      data = stan_data,
+      chains = mcmc$n.chains,
+      iter = mcmc$n.burn+mcmc$n.iter,
+      warmup = mcmc$n.burn,
+      thin = mcmc$thin
+    )
+
+    # !!!!! MCMC diagnostics
+    if (FALSE) {
+      # vars <- c("beta_j_2", "beta_j_3", "beta_j_4",
+      #           "beta_j_5", "beta_j_6", "beta_j_7")
+      vars <- c("beta_s_1", "beta_s_2", "beta_s_3",
+                "beta_s_4", "beta_s_5", "beta_s_6")
+      # vars <- c("beta0", "delta", "omega")
+      # vars <- "smp"
+      # vars <- "alpha"
+      # vars <- c("sigma", "tau")
+      rstan::traceplot(fit, vars, inc_warmup=TRUE)
+    }
+
+    # Extract beta_s means
+    beta_s_hat <- c()
+    for (i in 1:6) {
+      beta_s_hat[i] <- mean(rstan::extract(fit)[[paste0("beta_s_",i)]])
+    }
+
+    # Construct covariance matrix of s terms
+    sigma_s_hat <- matrix(NA, nrow=6, ncol=6)
+    for (i in 1:6) {
+      for (j in 1:6) {
+        sigma_s_hat[i,j] <- cov(
+          rstan::extract(fit)[[paste0("beta_s_",i)]],
+          rstan::extract(fit)[[paste0("beta_s_",j)]],
+          use = "complete.obs"
+        )
+      }
+    }
+
+    # Calculate theta_l_hat vector and sigma_l_hat matrix
+    B = rbind(
+      c(1,0,0,0,0,0),
+      c(1,1,0,0,0,0),
+      c(1,1,1,0,0,0),
+      c(1,1,1,1,0,0),
+      c(1,1,1,1,1,0),
+      c(1,1,1,1,1,1)
+    )
+    theta_l_hat <- B %*% beta_s_hat
+    sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
+
+    # Extract beta_j means and sds
+    beta_j_hat <- c()
+    sd_beta_j_hat <- c()
+    for (i in 2:7) {
+      beta_j_hat[i-1] <- mean(rstan::extract(fit)[[paste0("beta_j_",i)]])
+      sd_beta_j_hat[i-1] <- sd(rstan::extract(fit)[[paste0("beta_j_",i)]])
+    }
+
+    est_mec <- list(
+      delta = c(0,as.numeric(theta_l_hat)),
+      ci_l = c(0,as.numeric(theta_l_hat)-1.96*sqrt(diag(sigma_l_hat))),
+      ci_u = c(0,as.numeric(theta_l_hat)+1.96*sqrt(diag(sigma_l_hat))),
+      time = c(0,beta_j_hat),
+      ci2_l = c(0,beta_j_hat-1.96*sd_beta_j_hat),
+      ci2_u = c(0,beta_j_hat+1.96*sd_beta_j_hat)
+    )
+
   }
 
   # Display results
-  # !!!!! Add MEC
+  # models <- list("IT"=est_it, "ETI"=est_eti, "ETI (RTE)"=est_rte,
+  #                "RETI (3)"=est_reti, "NCS (4df)"=est_ncs)
   models <- list("IT"=est_it, "ETI"=est_eti, "ETI (RTE)"=est_rte,
-                 "RETI (3)"=est_reti, "NCS (4df)"=est_ncs)
+                 "RETI (3)"=est_reti, "NCS (4df)"=est_ncs, "MEC"=est_mec)
   print_results(models=models, which="disinvestment")
   print_graphs(models=models, which="disinvestment", ncol=3)
 
@@ -2063,6 +2162,48 @@ if (run_misc) {
     title = c("Stepped wedge design", "Parallel design"),
     compare_to_parallel = TRUE
   )
+
+}
+
+
+
+#################################.
+##### MISC: Dirichlet plots #####
+#################################.
+
+if (run_misc) {
+
+  sample1 <- rdirichlet(10,c(5,5,5,1,1,1))
+  df1 <- data.frame(
+    sample = factor(rep(c(1:10), each=6)),
+    element = factor(rep(c(1:6), 10)),
+    y = c(sample1[1,],sample1[2,],sample1[3,],sample1[4,],sample1[5,],
+          sample1[6,],sample1[7,],sample1[8,],sample1[9,],sample1[10,])
+  )
+  sample2 <- rdirichlet(10,c(500,500,500,100,100,100))
+  df2 <- data.frame(
+    sample = factor(rep(c(1:10), each=6)),
+    element = factor(rep(c(1:6), 10)),
+    y = c(sample2[1,],sample2[2,],sample2[3,],sample2[4,],sample2[5,],
+          sample2[6,],sample2[7,],sample2[8,],sample2[9,],sample2[10,])
+  )
+  sample3 <- rdirichlet(10,c(0.05,0.05,0.05,0.01,0.01,0.01))
+  df3 <- data.frame(
+    sample = factor(rep(c(1:10), each=6)),
+    element = factor(rep(c(1:6), 10)),
+    y = c(sample3[1,],sample3[2,],sample3[3,],sample3[4,],sample3[5,],
+          sample3[6,],sample3[7,],sample3[8,],sample3[9,],sample3[10,])
+  )
+
+  ggplot(df1, aes(fill=element, y=y, x=sample)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(title="Dirichlet(5,5,5,1,1,1)")
+  ggplot(df2, aes(fill=element, y=y, x=sample)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(title="Dirichlet(500,500,500,100,100,100)")
+  ggplot(df3, aes(fill=element, y=y, x=sample)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(title="Dirichlet(0.05,0.05,0.05,0.01,0.01,0.01)")
 
 }
 
