@@ -22,8 +22,10 @@
 #'     >0, this represents the maximum number of time points it takes to reach
 #'     the maximum effect; if =0, no assumption is made about time to maximum
 #'     effect
-#'     The `re` argument is only used for "ETI" and "SS". It can be set to
-#'     "height" or "height+shape".
+#'     The `re` argument is only used for "IT" and "ETI". If it is not
+#'         specified, a random cluster intercept is used. For ETI, it can be set
+#'         to "none" (omit the RE) or "height" (random Tx effect). For IT, it
+#'         can be set to "none".
 #' @param return_extra An empty list, or a list of the form
 #'     list(rte=TRUE, whole_curve=TRUE). Include rte=TRUE to return estimates of
 #'     random effect parameters. Include whole_curve=TRUE to return estimates of
@@ -98,13 +100,32 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
   if (method$method=="IT") {
 
-    # Run GLMM
     if (data_type=="normal") {
-      model <- lmer(
-        y ~ factor(j) + x_ij + (1|i),
-        data = data$data
-      )
+
+      if (is.na(method$re)) {
+        # Fit GLMM
+        model <- lmer(
+          y ~ factor(j) + x_ij + (1|i),
+          data = data$data
+        )
+      } else if (method$re=="none") {
+        # Fit GLM
+        model <- lm(
+          y ~ factor(j) + x_ij,
+          data = data$data
+        )
+      } else if (method$re=="2WFE") {
+        # Fit GLM
+        model <- lm(
+          y ~ factor(j) + x_ij + factor(i),
+          data = data$data
+        )
+      } else {
+        stop("Invalid RE specification")
+      }
+
     } else if (data_type=="binomial") {
+      # !!!!! Archive; unused
       model <- glmer(
         y ~ factor(j) + x_ij + (1|i),
         data = data$data,
@@ -145,17 +166,31 @@ run_analysis <- function(data, data_type, method, return_extra) {
       )
     }
 
-    # Run GLMM
     if (is.na(method$re)) {
-      formula <- y ~ factor(j) + factor(l) + (1|i)
+      # Fit GLMM
+      model <- lmer(
+        y ~ factor(j) + factor(l) + (1|i),
+        data = data$data
+      )
+    } else if (method$re=="none") {
+      # Fit GLM
+      model <- lm(
+        y ~ factor(j) + factor(l),
+        data = data$data
+      )
     } else if (method$re=="height") {
-      formula <- y ~ factor(j) + factor(l) + (x_ij|i)
+      # Fit GLMM with random Tx effect
+      model <- lmer(
+        y ~ factor(j) + factor(l) + (x_ij|i),
+        data = data$data
+      )
+    } else {
+      stop("Invalid RE specification")
     }
-    if (data_type=="normal") {
-      model <- lmer(formula, data=data$data)
-    } else if (data_type=="binomial") {
-      model <- glmer(formula, data=data$data, family="binomial")
-    }
+
+    # if (data_type=="binomial") {
+    #   model <- glmer(formula, data=data$data, family="binomial")
+    # }
 
     # formula <- y ~ factor(j) + factor(l) + (1|i) # !!!!!
     # model <- lmer(formula, data=data$data) # !!!!!
@@ -1645,6 +1680,75 @@ run_analysis <- function(data, data_type, method, return_extra) {
       s_6 = data_mod$s_6
     )
 
+    # Formerly "simplex 5b"
+    if (method$enforce=="simplex") {
+
+      stan_code <- quote("
+        data {
+          int I;
+          int N;
+          real y[N];
+          int i[N];
+          real j_2[N];
+          real j_3[N];
+          real j_4[N];
+          real j_5[N];
+          real j_6[N];
+          real j_7[N];
+          real s_1[N];
+          real s_2[N];
+          real s_3[N];
+          real s_4[N];
+          real s_5[N];
+          real s_6[N];
+        }
+        parameters {
+          real beta0;
+          real beta_j_2;
+          real beta_j_3;
+          real beta_j_4;
+          real beta_j_5;
+          real beta_j_6;
+          real beta_j_7;
+          real delta;
+          real<lower=0.01,upper=100> omega;
+          simplex[6] smp;
+          real alpha[I];
+          real<lower=0> sigma;
+          real<lower=0> tau;
+        }
+        transformed parameters {
+          real beta_s_1;
+          real beta_s_2;
+          real beta_s_3;
+          real beta_s_4;
+          real beta_s_5;
+          real beta_s_6;
+          vector[N] y_mean;
+          beta_s_1 = delta * smp[1];
+          beta_s_2 = delta * smp[2];
+          beta_s_3 = delta * smp[3];
+          beta_s_4 = delta * smp[4];
+          beta_s_5 = delta * smp[5];
+          beta_s_6 = delta * smp[6];
+          for (n in 1:N) {
+            y_mean[n] = beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] +
+            beta_j_7*j_7[n] + delta*(
+              smp[1]*s_1[n] + smp[2]*s_2[n] + smp[3]*s_3[n] +
+              smp[4]*s_4[n] + smp[5]*s_5[n] + smp[6]*s_6[n]
+            ) + alpha[i[n]];
+          }
+        }
+        model {
+          delta ~ normal(0,100);
+          alpha ~ normal(0,tau);
+          smp ~ dirichlet([5*omega,5*omega,5*omega,1*omega,1*omega,1*omega]');
+          y ~ normal(y_mean,sigma);
+      }")
+
+    }
+
     if (method$enforce=="simplex 5") {
 
       stan_code <- quote("
@@ -1707,73 +1811,6 @@ run_analysis <- function(data, data_type, method, return_extra) {
         model {
           alpha ~ normal(0,tau);
           smp ~ dirichlet([6*omega,5*omega,4*omega,3*omega,2*omega,1*omega]');
-          y ~ normal(y_mean,sigma);
-      }")
-
-    }
-
-    if (method$enforce=="simplex 5b") {
-
-      stan_code <- quote("
-        data {
-          int I;
-          int N;
-          real y[N];
-          int i[N];
-          real j_2[N];
-          real j_3[N];
-          real j_4[N];
-          real j_5[N];
-          real j_6[N];
-          real j_7[N];
-          real s_1[N];
-          real s_2[N];
-          real s_3[N];
-          real s_4[N];
-          real s_5[N];
-          real s_6[N];
-        }
-        parameters {
-          real beta0;
-          real beta_j_2;
-          real beta_j_3;
-          real beta_j_4;
-          real beta_j_5;
-          real beta_j_6;
-          real beta_j_7;
-          real delta;
-          real<lower=0.01,upper=100> omega;
-          simplex[6] smp;
-          real alpha[I];
-          real<lower=0> sigma;
-          real<lower=0> tau;
-        }
-        transformed parameters {
-          real beta_s_1;
-          real beta_s_2;
-          real beta_s_3;
-          real beta_s_4;
-          real beta_s_5;
-          real beta_s_6;
-          vector[N] y_mean;
-          beta_s_1 = delta * smp[1];
-          beta_s_2 = delta * smp[2];
-          beta_s_3 = delta * smp[3];
-          beta_s_4 = delta * smp[4];
-          beta_s_5 = delta * smp[5];
-          beta_s_6 = delta * smp[6];
-          for (n in 1:N) {
-            y_mean[n] = beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
-            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] +
-            beta_j_7*j_7[n] + delta*(
-              smp[1]*s_1[n] + smp[2]*s_2[n] + smp[3]*s_3[n] +
-              smp[4]*s_4[n] + smp[5]*s_5[n] + smp[6]*s_6[n]
-            ) + alpha[i[n]];
-          }
-        }
-        model {
-          alpha ~ normal(0,tau);
-          smp ~ dirichlet([5*omega,5*omega,5*omega,1*omega,1*omega,1*omega]');
           y ~ normal(y_mean,sigma);
       }")
 

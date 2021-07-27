@@ -15,6 +15,7 @@
 #' @param n_extra_time_points Number of extra time points at the end of the
 #'     study (all clusters are in the treatment state)
 #' @param rte Specification of random treatment effects. Options include the
+#' @param time_trend One of c("incr","none")
 #'     following (see the manuscript for details):
 #'     * NA (no random treatment effects)
 #'     * list(type="height", rho=1, nu=1);
@@ -25,7 +26,8 @@
 
 generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
                              n_ind_per_cluster, data_type, sigma=NA,
-                             delay_model, n_extra_time_points, rte=NA) {
+                             delay_model, n_extra_time_points, rte=NA,
+                             time_trend="incr") {
 
   # Generate data frame
   data <- data.frame(
@@ -49,7 +51,13 @@ generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
   # Will go beyond -0.5 if n_extra_time_points>0
   # Main constraint is that beta_1=0
   beta_js <- sapply(1:(n_time_points+n_extra_time_points), function(j){
-    ((1-j)/(n_time_points-1)) * 0.5
+    if (time_trend=="incr") {
+      return( ((1-j)/(n_time_points-1)) * 0.5 )
+    } else if (time_trend=="none") {
+      return( 0 )
+    } else {
+      stop("time_trend trend misspecified")
+    }
   })
 
   # Create theta_ls (intervention effects) based on continuous fn "delay_model"

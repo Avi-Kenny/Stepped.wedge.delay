@@ -1,3 +1,51 @@
+# 3x4 stepped wedge
+{
+  # Set design matrix X
+  # X <- rbind(c(1,0,0,0,0),
+  #            c(1,1,0,0,1),
+  #            c(1,0,1,0,1),
+  #            c(1,0,0,1,1),
+  #            c(1,0,0,0,0),
+  #            c(1,1,0,0,0),
+  #            c(1,0,1,0,1),
+  #            c(1,0,0,1,1),
+  #            c(1,0,0,0,0),
+  #            c(1,1,0,0,0),
+  #            c(1,0,1,0,0),
+  #            c(1,0,0,1,1))
+  X <- matrix(c(
+    rep(c(1,0,0,0,0),2),
+    rep(c(1,1,0,0,1),2),
+    rep(c(1,0,1,0,1),2),
+    rep(c(1,0,0,1,1),2),
+    rep(c(1,0,0,0,0),2),
+    rep(c(1,1,0,0,0),2),
+    rep(c(1,0,1,0,1),2),
+    rep(c(1,0,0,1,1),2),
+    rep(c(1,0,0,0,0),2),
+    rep(c(1,1,0,0,0),2),
+    rep(c(1,0,1,0,0),2),
+    rep(c(1,0,0,1,1),2)),
+    ncol = 5,
+    byrow = TRUE
+  )
+
+  r <- 0.5
+  WW <- matrix(r, nrow=8, ncol=8) + diag(rep(1-r,8))
+  W <- bdiag(WW,WW,WW)
+
+  Y <- c(1:24)
+
+  solve(t(X) %*% solve(W) %*% X) %*% t(X) %*% solve(W) %*% Y
+
+  # X'X matrix
+  print(t(X) %*% X)
+
+  # (X'X)^-1 matrix
+  print(120 * solve(t(X) %*% X))
+
+
+}
 
 # 2 x 3 stepped wedge
 {

@@ -1,24 +1,22 @@
 # Title: "Stepped wedge lagged effect simulation"
 # Author: Avi Kenny
 
-
-
 ##################.
 ##### CONFIG #####
 ##################.
 
 # Set global config
 cfg <- list(
-  level_set_which = "level_set_test",
+  level_set_which = "level_set_4",
   run_or_update = "run",
   num_sim = 1000,
   pkgs = c("dplyr", "stringr", "lme4", "rjags", "Iso", "sqldf", "mgcv", "MASS",
            "fastDummies", "car", "splines", "glmmTMB", "rstan"),
   pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales", "glmmTMB", # devtools::install_github("zeehio/facetscales")
                      "readxl"),
-  parallel = "none",
+  parallel = "outer",
   stop_at_error = FALSE,
-  # mcmc = list(n.adapt=1000, n.iter=1000, n.burn=1000, n.chains=2, thin=1)
+  # mcmc = list(n.adapt=500, n.iter=500, n.burn=500, n.chains=1, thin=1)
   mcmc = list(n.adapt=2000, n.iter=3000, n.burn=1000, n.chains=3, thin=1)
 )
 
@@ -88,20 +86,25 @@ if (FALSE) {
   # Generate dataset
   data <- generate_dataset(
     mu = 1,
-    n_clusters = 24,
-    n_time_points = 7,
-    n_ind_per_cluster = 20, # 50
+    n_clusters = 3, # 24
+    n_time_points = 4,
+    n_ind_per_cluster = 20,
     theta = 0.5,
-    tau = 0.25, # 0.5
-    sigma = 1, # 2
+    tau = 0.01, # 0.25
+    sigma = 0.01, # 1
     data_type = "normal",
     # delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
-    delay_model = list(type="exp", params=list(d=1.5)),
+    # delay_model = list(type="exp", params=list(d=1.5)),
+    delay_model = list(
+      type = "spline",
+      params = list(knots=c(0,2,4), slopes=c(0.1,0.4))
+    ),
     # n_extra_time_points = 2,
     n_extra_time_points = 0,
-    rte = NA
+    rte = NA,
     # rte = list(type="height", rho=-0.2, nu=0.4)
     # rte = list(type="height+shape", rho1=-0.1, rho2=0.6, nu=0.4)
+    time_trend = "none" # incr
   )
 
   # # Set variables needed in run_analysis
@@ -117,7 +120,7 @@ if (FALSE) {
 ##########################################################.
 
 if (run_main) {
-  if (Sys.getenv("run") %in% c("first", "")) {
+  if (Sys.getenv("simba_run") %in% c("first", "")) {
 
     delay_models <- list(
       "Instantaneous" = list(
@@ -138,40 +141,27 @@ if (run_main) {
       )
     )
 
-    # !!!!! Method archive
-    {
-      # "MCMC (exp; N(1,10) mix 0.2)" = list(method="MCMC-STEP-MON", enforce="exp; N(1,10) mix (0.2)",mcmc=list(n.adapt=1000, n.burn=2000, n.iter=1000, n.chains=2)),
-      # "PAVA (wts: equal)" = list(method="MCMC-STEP-PAVA", wts="equal",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)),
-      # "PAVA (wts: samp_size)" = list(method="MCMC-STEP-PAVA", wts="samp_size",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2)),
-      # "PAVA (wts: sqrt_samp_size)" = list(method="MCMC-STEP-PAVA", wts="sqrt_samp_size",mcmc=list(n.adapt=1000, n.burn=1000, n.iter=2000, n.chains=2))
-      # "MCMC-STEP (exp; mix prior 0.2)" = list(method="MCMC-STEP-MON",enforce="exp; mix prior 0.2")
-    }
-
-    # !!!!! Testing new MEC Stan models
+    # !!!!! Testing
     level_set_test <- list(
-      n_clusters = 24,
-      n_time_points = 7,
-      n_ind_per_cluster = 20,
+      n_clusters = c(3,30,300), # 24
+      n_time_points = 4, # 7
+      n_ind_per_cluster = 20, # 20
       theta = 0.5,
-      tau = 0.25,
-      sigma = 1,
+      tau = c(0.01), # 0.25
+      sigma = c(0.01), # 1
       data_type = "normal",
       method = list(
-        "ETI" = list(method="ETI"),
-        "Stan (simplex 5b)" = list(
-          method = "MCMC-MON-Stan", enforce="simplex 5b",
-          mcmc = cfg$mcmc),
-        "Stan (simplex 5d)" = list(
-          method = "MCMC-MON-Stan", enforce="simplex 5d",
-          mcmc = cfg$mcmc),
-        "Stan (simplex 6)" = list(
-          method = "MCMC-MON-Stan", enforce="simplex 6",
-          mcmc = cfg$mcmc)
+        "IT" = list(method="IT"),
+        # "ETI" = list(method="ETI"),
+        "IT (no RE)" = list(method="IT", re="none"),
+        # "ETI (no RE)" = list(method="ETI", re="none")
+        "IT (2WFE)" = list(method="IT", re="2WFE")
       ),
-      delay_model = delay_models,
+      delay_model = delay_models[4],
       n_extra_time_points = 0,
       rte = NA,
-      return_extra = list("whole_curve"=list(whole_curve=TRUE))
+      return_extra = list("none"=list())
+      # return_extra = list("whole_curve"=list(whole_curve=TRUE))
     )
 
     # Simulation 1: pitfalls of the immediate treatment (IT) model
@@ -190,9 +180,9 @@ if (run_main) {
         "IT" = list(method="IT"),
         "ETI" = list(method="ETI"),
         "NCS (4df)" = list(method="NCS-4df"),
-        "MEC (P=0.1)" = list(                                     # !!!!!
-          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1", # !!!!!
-          mcmc = cfg$mcmc)                                        # !!!!!
+        "MEC" = list(
+          method = "MCMC-MON-Stan", enforce="simplex",
+          mcmc = cfg$mcmc)
       ),
       delay_model = delay_models,
       n_extra_time_points = 0,
@@ -214,32 +204,8 @@ if (run_main) {
         "IT" = list(method="IT"),
         "ETI" = list(method="ETI"),
         "NCS (4df)" = list(method="NCS-4df"),
-        "MEC (P=0.1)" = list(
-          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
-          mcmc = cfg$mcmc)
-      ),
-      delay_model = delay_models,
-      n_extra_time_points = 0,
-      rte = NA,
-      return_extra = list("none"=list())
-    )
-
-    # Simulation 4b: power of Wald-type hypothesis tests
-    # 80 level combos
-    level_set_4b <- list(
-      n_clusters = 24,
-      n_time_points = 7,
-      n_ind_per_cluster = seq(10,50,10),
-      theta = 0.5,
-      tau = 0.25, # 0.5
-      sigma = 1, # 2
-      data_type = "normal",
-      method = list(
-        "IT" = list(method="IT"),
-        "ETI" = list(method="ETI"),
-        "NCS (4df)" = list(method="NCS-4df"),
-        "MEC (P=0.1)" = list(
-          method = "MCMC-STEP-MON", enforce="exp; mix prior 0.1",
+        "MEC" = list(
+          method = "MCMC-MON-Stan", enforce="simplex",
           mcmc = cfg$mcmc)
       ),
       delay_model = delay_models,
@@ -281,13 +247,7 @@ if (run_main) {
       data_type = "normal",
       method = list(
         "ETI" = list(method="ETI"),
-        "ETI (RTE; height)" = list(method="ETI", re="height"),
-        # "ETI (RTE MCMC; height)"=list(
-        #   method = "MCMC-RTE-height",
-        #   mcmc = cfg$mcmc),
-        "ETI (RTE MCMC; height+shape)" = list(
-          method = "MCMC-RTE-height+shape",
-          mcmc = cfg$mcmc)
+        "ETI (RTE; height)" = list(method="ETI", re="height")
       ),
       delay_model = delay_models,
       n_extra_time_points = 0,
@@ -327,14 +287,14 @@ if (run_main) {
 #################################.
 
 # Commands for job sumbission on Slurm:
-# sbatch --export=run='first',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
-# sbatch --depend=afterok:11 --array=1-16 --export=run='main',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
-# sbatch --depend=afterok:12 --export=run='last',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
+# sbatch --export=simba_run='first',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
+# sbatch --depend=afterok:11 --array=1-16 --export=simba_run='main',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
+# sbatch --depend=afterok:12 --export=simba_run='last',cluster='bionic',type='R',project='z.stepped.wedge' -e ./io/slurm-%A_%a.out -o ./io/slurm-%A_%a.out --constraint=gizmok run_r.sh
 
 # Commands for job sumbission on SGE:
-# qsub -v run='first',cluster='bayes',type='R',project='z.stepped.wedge' -cwd -e ./io/ -o ./io/ run_r.sh
-# qsub -hold_jid 1992344 -t 1-3 -v run='main',cluster='bayes',type='R',project='z.stepped.wedge' -cwd -e ./io/ -o ./io/ run_r.sh
-# qsub -hold_jid 1992345 -v run='last',cluster='bayes',type='R',project='z.stepped.wedge' -cwd -e ./io/ -o ./io/ run_r.sh
+# qsub -v simba_run='first',cluster='bayes',type='R',project='z.stepped.wedge' -cwd -e ./io/ -o ./io/ run_r.sh
+# qsub -hold_jid 1992344 -t 1-3 -v simba_run='main',cluster='bayes',type='R',project='z.stepped.wedge' -cwd -e ./io/ -o ./io/ run_r.sh
+# qsub -hold_jid 1992345 -v simba_run='last',cluster='bayes',type='R',project='z.stepped.wedge' -cwd -e ./io/ -o ./io/ run_r.sh
 
 if (run_main) {
 
@@ -352,6 +312,7 @@ if (run_main) {
           num_sim = cfg$num_sim,
           parallel = cfg$parallel,
           stop_at_error = cfg$stop_at_error,
+          seed = as.integer(10000*runif(1)),
           packages = cfg$pkgs
         )
         sim %<>% add_constants(mu = 1)
@@ -415,10 +376,10 @@ if (run_main) {
 if (run_process_results) {
 
   # Set simulation
-  whichsim <- 2
+  whichsim <- 1
 
   # Read in simulation object
-  sim <- readRDS("../simba.out/sim_test_20210610.simba")
+  sim <- readRDS("../simba.out/sim123_20210506.simba")
 
   # Generate true TATE values
   # Note: now using step function approximations
@@ -476,7 +437,13 @@ if (run_process_results) {
       list(name="ate", x="ate"),
       list(name="mean_ate", x="ate_hat"),
       list(name="mse_wc", x="mse_wc"),
-      list(name="mean_lte", x="lte_hat")
+      list(name="mean_lte", x="lte_hat"),
+      list(name="theta_1", x="theta_1"),
+      list(name="theta_2", x="theta_2"),
+      list(name="theta_3", x="theta_3"),
+      list(name="theta_4", x="theta_4"),
+      list(name="theta_5", x="theta_5"),
+      list(name="theta_6", x="theta_6")
     )
 
   } else {
@@ -485,6 +452,11 @@ if (run_process_results) {
       list(name="mean_ate", x="ate_hat"),
       list(name="mean_lte", x="lte_hat")
     )
+  }
+
+  # simba compatibility
+  if (is.null(sim$vars)) {
+    sim$vars <- list(run_state = sim$internals$run_state)
   }
 
   # Summarize data
@@ -522,18 +494,10 @@ if (run_process_results) {
     )
   )
   s_methods <- unique(sim$results$method)
-  if (whichsim==1) {
-    summ %<>% filter(method %in% c("IT","ETI"))
-  }
-  if (whichsim %in% c(2,3)) {
-    summ %<>% filter(method!="IT")
-  }
-  if (whichsim==6) {
-    summ %<>% filter(rte=="none")
-  }
-  if (whichsim==7) {
-    summ %<>% filter(rte=="height")
-  }
+  if (whichsim==1) summ %<>% filter(method %in% c("IT","ETI"))
+  if (whichsim==2) summ %<>% filter(method!="IT")
+  if (whichsim==6) summ %<>% filter(rte=="none")
+  if (whichsim==7) summ %<>% filter(rte=="height")
   summ %<>% mutate(
     method = factor(method, levels=s_methods),
     delay_model = factor(delay_model, levels=s_d_models),
@@ -561,6 +525,35 @@ if (run_process_results) {
   p_data %<>% mutate(n_extra = as.character(n_extra))
   p_data %<>% rename("Extra time points"=n_extra)
 
+  if (whichsim==3) {
+
+    summ_it <- filter(summ, Method=="IT")
+
+    p_data2 <- sqldf("
+      SELECT delay_model, 'True effect curve' AS which, theta_1 AS value,
+        1 AS time FROM summ_it
+      UNION SELECT delay_model, 'True effect curve', theta_2, 2 FROM summ_it
+      UNION SELECT delay_model, 'True effect curve', theta_3, 3 FROM summ_it
+      UNION SELECT delay_model, 'True effect curve', theta_4, 4 FROM summ_it
+      UNION SELECT delay_model, 'True effect curve', theta_5, 5 FROM summ_it
+      UNION SELECT delay_model, 'True effect curve', theta_6, 6 FROM summ_it
+      UNION SELECT delay_model, 'IT estimate', mean_ate, 1 FROM summ_it
+      UNION SELECT delay_model, 'IT estimate', mean_ate, 2 FROM summ_it
+      UNION SELECT delay_model, 'IT estimate', mean_ate, 3 FROM summ_it
+      UNION SELECT delay_model, 'IT estimate', mean_ate, 4 FROM summ_it
+      UNION SELECT delay_model, 'IT estimate', mean_ate, 5 FROM summ_it
+      UNION SELECT delay_model, 'IT estimate', mean_ate, 6 FROM summ_it
+      UNION SELECT delay_model, 'True TATE', ate, 1 FROM summ_it
+      UNION SELECT delay_model, 'True TATE', ate, 2 FROM summ_it
+      UNION SELECT delay_model, 'True TATE', ate, 3 FROM summ_it
+      UNION SELECT delay_model, 'True TATE', ate, 4 FROM summ_it
+      UNION SELECT delay_model, 'True TATE', ate, 5 FROM summ_it
+      UNION SELECT delay_model, 'True TATE', ate, 6 FROM summ_it
+
+    ")
+
+  }
+
   cb_colors <- c("#999999", "#E69F00", "#56B4E9", "#009E73",
                  "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
   m_colors <- c(
@@ -576,7 +569,6 @@ if (run_process_results) {
     `1` = cb_colors[7],
     `2` = cb_colors[6]
   )
-  # viridis(5)
 
 }
 
@@ -619,12 +611,16 @@ if (run_viz) {
     #   data=filter(p_data, stat=="Coverage", Method=="IT"),
     #   aes(label=value)
     # ) +
-    facet_grid_sc(cols=vars(delay_model), rows=vars(stat), scales=list(y=list(
-      Bias = scale_y_continuous(labels=percent_format()),
-      Coverage = scale_y_continuous(labels=percent_format(), # oob = oob_keep,
-                                    limits=y_lims),
-      MSE = scale_y_continuous()
-    ))) +
+    facet_grid_sc(
+      cols = dplyr::vars(delay_model),
+      rows = dplyr::vars(stat),
+      scales=list(y=list(
+        Bias = scale_y_continuous(labels=percent_format()),
+        Coverage = scale_y_continuous(labels=percent_format(), # oob = oob_keep,
+                                      limits=y_lims),
+        MSE = scale_y_continuous()
+      ))
+    ) +
     theme(legend.position="bottom") +
     scale_fill_manual(values=m_colors) +
     labs(y=NULL, x=NULL, fill="Analysis model")
@@ -640,13 +636,14 @@ if (run_viz) {
 if (run_viz) {
 
   # Export: 8: x 3"
+  summ2 <- filter(summ, Method!="IT")
   ggplot(
-    summ,
+    summ2,
     aes(x=Method, y=mse_wc, fill=Method) # x=which,
   ) +
     geom_bar(stat="identity", position=position_dodge(), width=0.8,
              color="#555555", size=0.35, alpha=0.8) +
-    facet_grid(cols=vars(delay_model)) +
+    facet_grid(cols=dplyr::vars(delay_model)) +
     theme(
       legend.position="bottom",
       axis.ticks.x=element_blank(),
@@ -654,6 +651,32 @@ if (run_viz) {
     ) +
     scale_fill_manual(values=m_colors) +
     labs(y="Average pointwise MSE", x=NULL, fill="Analysis model")
+
+  # !!!!! New plot
+  ggplot(
+    p_data2,
+    aes(x=time, y=value, color=which, shape=which, group=which)
+  ) +
+    geom_line() +
+    geom_point() +
+    labs(
+      x = "Study time",
+      color = NULL,
+      shape = NULL,
+      y = "Treatment effect"
+    ) +
+    geom_hline(
+      aes(yintercept=0),
+      linetype="longdash", color="grey"
+    ) +
+    theme(legend.position="bottom") +
+    # scale_color_manual(values=m_colors) +
+    # scale_shape_manual(values=c(15,16,17)) +
+    facet_grid(cols=dplyr::vars(delay_model))
+    # scale_y_continuous(labels=percent_format()) +
+    # theme(
+    #   axis.text.x = element_text(angle=90, hjust=0, vjust=0.4)
+    # )
 
 }
 
@@ -681,7 +704,7 @@ if (run_viz) {
     theme(legend.position="bottom") +
     scale_color_manual(values=m_colors) +
     # scale_shape_manual(values=c(15,16,17)) +
-    facet_grid(rows=vars(which), cols=vars(delay_model)) +
+    facet_grid(rows=dplyr::vars(which), cols=dplyr::vars(delay_model)) +
     scale_y_continuous(labels=percent_format()) +
     theme(
       axis.text.x = element_text(angle=90, hjust=0, vjust=0.4)
@@ -712,12 +735,16 @@ if (run_viz) {
     ) +
     geom_bar(stat="identity", position=position_dodge(), width=0.8,
              color="#555555", size=0.35, alpha=0.8) +
-    facet_grid_sc(cols=vars(delay_model), rows=vars(stat), scales=list(y=list(
-      Bias = scale_y_continuous(labels = percent_format()),
-      Coverage = scale_y_continuous(labels=percent_format(),
-                                    limits=y_lims),
-      MSE = scale_y_continuous()
-    ))) +
+    facet_grid_sc(
+      cols = dplyr::vars(delay_model),
+      rows = dplyr::vars(stat),
+        scales=list(y=list(
+        Bias = scale_y_continuous(labels = percent_format()),
+        Coverage = scale_y_continuous(labels=percent_format(),
+                                      limits=y_lims),
+        MSE = scale_y_continuous()
+      ))
+    ) +
     theme(legend.position="bottom") +
     scale_fill_manual(values=m_colors) +
     labs(y=NULL, x=NULL, fill="Extra time points")
@@ -765,7 +792,7 @@ if (run_viz) {
       y = NULL
     ) +
     facet_wrap(~delay_model, ncol=3) +
-    # facet_grid(rows=vars(date), cols=vars(dgm)) +
+    # facet_grid(rows=dplyr::vars(date), cols=dplyr::vars(dgm)) +
     theme(
       axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
       legend.position = "none"
@@ -805,7 +832,7 @@ if (run_viz) {
       y = NULL
     ) +
     coord_cartesian(ylim=c(-1,0)) +
-    facet_grid(rows=vars(data_type), cols=vars(delay_model)) +
+    facet_grid(rows=dplyr::vars(data_type), cols=dplyr::vars(delay_model)) +
     theme(
       axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
       legend.position = "none"
@@ -869,7 +896,7 @@ if (run_viz) {
       x = "Analysis method",
       y = NULL
     ) +
-    facet_grid(rows=vars(data_type), cols=vars(delay_model)) +
+    facet_grid(rows=dplyr::vars(data_type), cols=dplyr::vars(delay_model)) +
     theme(
       axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
       legend.position = "none"
@@ -961,7 +988,7 @@ if (run_viz) {
     ) +
     coord_cartesian(ylim=c(-1,0)) +
     # facet_wrap(~dgm, ncol=3) +
-    facet_grid(rows=vars(date), cols=vars(dgm)) +
+    facet_grid(rows=dplyr::vars(date), cols=dplyr::vars(dgm)) +
     theme(
       axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
       legend.position = "none"
@@ -1142,7 +1169,7 @@ if (run_viz) {
     #     x = "Analysis method",
     #     y = NULL
     #   ) +
-    #   facet_grid(rows=vars(tau), cols=vars(dgm)) +
+    #   facet_grid(rows=dplyr::vars(tau), cols=dplyr::vars(dgm)) +
     #   theme(
     #     axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
     #     legend.position = "none"
@@ -1188,7 +1215,7 @@ if (run_viz) {
           x = "Analysis method",
           y = NULL
         ) +
-        facet_grid(rows=vars(tau), cols=vars(dgm)) +
+        facet_grid(rows=dplyr::vars(tau), cols=dplyr::vars(dgm)) +
         theme(
           axis.text.x = element_text(angle=90, hjust=0, vjust=0.4),
           legend.position = "none"
@@ -1221,7 +1248,7 @@ if (run_viz) {
         y = NULL
       ) +
       scale_color_manual(values=c("grey4","red","blue","green","purple","lightblue")) +
-      facet_grid(rows=vars(tau), cols=vars(dgm)) +
+      facet_grid(rows=dplyr::vars(tau), cols=dplyr::vars(dgm)) +
       theme(
         axis.text.x = element_text(angle=90, hjust=0, vjust=0.4)
       )
@@ -1499,7 +1526,6 @@ if (run_realdata) {
 
   # ETI (RTE; height) model
   {
-    # !!!!! Debug
     model_rte <- glmmTMB(
       y ~ factor(j) + factor(l) + (x_ij|i),
       data = df
@@ -1548,7 +1574,7 @@ if (run_realdata) {
       s_6 = as.integer(l>=6)
     )
     options(mc.cores = parallel::detectCores()-1)
-    Sys.setenv(LOCAL_CPPFLAGS = '-march=native')
+    # Sys.setenv(LOCAL_CPPFLAGS = '-march=native')
     rstan_options(auto_write=TRUE)
 
     # Put data into Stan format
@@ -1630,6 +1656,7 @@ if (run_realdata) {
         }
       }
       model {
+        delta ~ normal(0,100);
         alpha ~ normal(0,tau);
         smp ~ dirichlet([5*omega,5*omega,5*omega,1*omega,1*omega,1*omega]');
         y ~ normal(y_mean,sigma);
@@ -1709,8 +1736,8 @@ if (run_realdata) {
   # Display results
   # models <- list("IT"=est_it, "ETI"=est_eti, "ETI (RTE)"=est_rte,
   #                "RETI (3)"=est_reti, "NCS (4df)"=est_ncs)
-  models <- list("IT"=est_it, "ETI"=est_eti, "ETI (RTE)"=est_rte,
-                 "RETI (3)"=est_reti, "NCS (4df)"=est_ncs, "MEC"=est_mec)
+  models <- list("IT"=est_it, "ETI"=est_eti, "RTE"=est_rte,
+                 "RETI-3"=est_reti, "NCS-4"=est_ncs, "MEC"=est_mec)
   print_results(models=models, which="disinvestment")
   print_graphs(models=models, which="disinvestment", ncol=3)
 
@@ -1813,144 +1840,7 @@ if (run_realdata) {
       s_13=as.integer(l>=13), s_14=as.integer(l>=14)
     )
 
-    jags_code <- quote("
-      model {
-        for (a in 1:N) {
-          y[a] ~ dbin(ilogit(beta0 + beta_j_2*j_2[a] + beta_j_3*j_3[a] +
-          beta_j_4*j_4[a] + beta_j_5*j_5[a] + beta_j_6*j_6[a] + beta_j_7*j_7[a] +
-          beta_j_8*j_8[a] + beta_j_9*j_9[a] + beta_j_10*j_10[a] +
-          beta_j_11*j_11[a] + beta_j_12*j_12[a] + beta_j_13*j_13[a] +
-          beta_j_14*j_14[a] + beta_j_15*j_15[a] + beta_s_1*s_1[a] +
-          beta_s_2*s_2[a] + beta_s_3*s_3[a] + beta_s_4*s_4[a] +
-          beta_s_5*s_5[a] + beta_s_6*s_6[a] + beta_s_7*s_7[a] +
-          beta_s_8*s_8[a] + beta_s_9*s_9[a] + beta_s_10*s_10[a] +
-          beta_s_11*s_11[a] + beta_s_12*s_12[a] + beta_s_13*s_13[a] +
-          beta_s_14*s_14[a] + alpha[i[a]] + alpha2[site[a]]),
-          n[a])
-        }
-        for (a in 1:I2) {
-          alpha2[a] ~ dnorm(0, 1/(tau2^2))
-        }
-        for (a in 1:I) {
-          alpha[a] ~ dnorm(0, 1/(tau^2))
-        }
-        beta_s_14 <- ifelse(bern_14, 0, exp(alpha_s_14))
-        beta_s_13 <- ifelse(bern_13, 0, exp(alpha_s_13))
-        beta_s_12 <- ifelse(bern_12, 0, exp(alpha_s_12))
-        beta_s_11 <- ifelse(bern_11, 0, exp(alpha_s_11))
-        beta_s_10 <- ifelse(bern_10, 0, exp(alpha_s_10))
-        beta_s_9 <- ifelse(bern_9, 0, exp(alpha_s_9))
-        beta_s_8 <- ifelse(bern_8, 0, exp(alpha_s_8))
-        beta_s_7 <- ifelse(bern_7, 0, exp(alpha_s_7))
-        beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
-        beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
-        beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
-        beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
-        beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
-        beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
-        alpha_s_14 <- log(10) - e_s_14
-        alpha_s_13 <- log(10) - e_s_13
-        alpha_s_12 <- log(10) - e_s_12
-        alpha_s_11 <- log(10) - e_s_11
-        alpha_s_10 <- log(10) - e_s_10
-        alpha_s_9 <- log(10) - e_s_9
-        alpha_s_8 <- log(10) - e_s_8
-        alpha_s_7 <- log(10) - e_s_7
-        alpha_s_6 <- log(10) - e_s_6
-        alpha_s_5 <- log(10) - e_s_5
-        alpha_s_4 <- log(10) - e_s_4
-        alpha_s_3 <- log(10) - e_s_3
-        alpha_s_2 <- log(10) - e_s_2
-        alpha_s_1 <- log(10) - e_s_1
-        bern_14 ~ dbern(0.1)
-        bern_13 ~ dbern(0.1)
-        bern_12 ~ dbern(0.1)
-        bern_11 ~ dbern(0.1)
-        bern_10 ~ dbern(0.1)
-        bern_9 ~ dbern(0.1)
-        bern_8 ~ dbern(0.1)
-        bern_7 ~ dbern(0.1)
-        bern_6 ~ dbern(0.1)
-        bern_5 ~ dbern(0.1)
-        bern_4 ~ dbern(0.1)
-        bern_3 ~ dbern(0.1)
-        bern_2 ~ dbern(0.1)
-        bern_1 ~ dbern(0.1)
-        e_s_14 ~ dexp(1)
-        e_s_13 ~ dexp(1)
-        e_s_12 ~ dexp(1)
-        e_s_11 ~ dexp(1)
-        e_s_10 ~ dexp(1)
-        e_s_9 ~ dexp(1)
-        e_s_8 ~ dexp(1)
-        e_s_7 ~ dexp(1)
-        e_s_6 ~ dexp(1)
-        e_s_5 ~ dexp(1)
-        e_s_4 ~ dexp(1)
-        e_s_3 ~ dexp(1)
-        e_s_2 ~ dexp(1)
-        e_s_1 ~ dexp(1)
-        beta_j_15 ~ dnorm(0, 1.0E-4)
-        beta_j_14 ~ dnorm(0, 1.0E-4)
-        beta_j_13 ~ dnorm(0, 1.0E-4)
-        beta_j_12 ~ dnorm(0, 1.0E-4)
-        beta_j_11 ~ dnorm(0, 1.0E-4)
-        beta_j_10 ~ dnorm(0, 1.0E-4)
-        beta_j_9 ~ dnorm(0, 1.0E-4)
-        beta_j_8 ~ dnorm(0, 1.0E-4)
-        beta_j_7 ~ dnorm(0, 1.0E-4)
-        beta_j_6 ~ dnorm(0, 1.0E-4)
-        beta_j_5 ~ dnorm(0, 1.0E-4)
-        beta_j_4 ~ dnorm(0, 1.0E-4)
-        beta_j_3 ~ dnorm(0, 1.0E-4)
-        beta_j_2 ~ dnorm(0, 1.0E-4)
-        beta0 ~ dnorm(0, 1.0E-4)
-        tau2 <- 1/sqrt(tau_prec2)
-        tau_prec2 ~ dgamma(1.0E-3, 1.0E-3)
-        tau <- 1/sqrt(tau_prec)
-        tau_prec ~ dgamma(1.0E-3, 1.0E-3)
-      }
-    ")
-
-    # mcmc <- list(n.adapt=5000, n.iter=5000, n.burn=5000, n.chains=3, thin=1)
-    mcmc <- list(n.adapt=500, n.iter=1000, n.burn=500, n.chains=2, thin=1)
-    jm <- jags.model(
-      file = textConnection(jags_code),
-      data = list(
-        I=length(unique(df$i)), N=nrow(df), y=df$y, n=df$n,
-        I2=length(unique(df$site)), site=as.numeric(factor(df$site)),
-        i=df$i, j_2=df$j_2, j_3=df$j_3, j_4=df$j_4,
-        j_5=df$j_5, j_6=df$j_6, j_7=df$j_7, j_8=df$j_8,
-        j_9=df$j_9, j_10=df$j_10, j_11=df$j_11,
-        j_12=df$j_12, j_13=df$j_13, j_14=df$j_14, j_15=df$j_15,
-        s_1=df$s_1, s_2=df$s_2, s_3=df$s_3, s_4=df$s_4,
-        s_5=df$s_5, s_6=df$s_6, s_7=df$s_7, s_8=df$s_8,
-        s_9=df$s_9, s_10=df$s_10, s_11=df$s_11,
-        s_12=df$s_12, s_13=df$s_13, s_14=df$s_14
-      ),
-      inits = list(
-        bern_1=1, bern_2=1, bern_3=1, bern_4=1, bern_5=1,
-        bern_6=1, bern_7=1, bern_8=1, bern_9=1, bern_10=1,
-        bern_11=1, bern_12=1, bern_13=1, bern_14=1
-      ),
-      n.chains = mcmc$n.chains,
-      n.adapt = mcmc$n.adapt
-    )
-    update(jm, n.iter = mcmc$n.burn)
-    output <- coda.samples(
-      model = jm,
-      variable.names = c(
-        "beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4", "beta_s_5",
-        "beta_s_6", "beta_s_7", "beta_s_8", "beta_s_9", "beta_s_10",
-        "beta_s_11", "beta_s_12", "beta_s_13", "beta_s_14", "beta_j_2",
-        "beta_j_3", "beta_j_4", "beta_j_5", "beta_j_6", "beta_j_7",
-        "beta_j_8", "beta_j_9", "beta_j_10", "beta_j_11", "beta_j_12",
-        "beta_j_13", "beta_j_14", "beta_j_15"),
-      n.iter = mcmc$n.iter,
-      thin = mcmc$thin
-    )
-
-    n_samp <- length(output[[1]][,1])
+    # !!!!! UPDATE !!!!!
 
     # Extract beta_s and beta_j means
     beta_s_hat <- c()
@@ -2089,6 +1979,178 @@ if (run_misc) {
     facet_wrap(~fn, ncol=5) +
     scale_y_continuous(labels=percent) +
     labs(x="Time (steps)", y="Percent of maximum effect achieved")
+
+}
+
+
+
+##########################################################.
+##### MISC: Graphs of WLS estimator (for manuscript) #####
+##########################################################.
+
+if (run_misc) {
+
+  grid <- seq(0.01,0.99,0.01)
+  weight <- function(Q,s,phi) {
+    ( 6*(s-Q-1)*(s+2*phi*Q*s-Q*(1+phi+phi*Q)) ) /
+      ( Q*(Q+1)*(phi*Q^2+2*Q-phi*Q-2) )
+  }
+
+  # Cases corresponding to a fixed value of S; weights as a function of rho
+  # Export: 5" x 3"
+  for (Q in c(3,5,8)) {
+    assign(paste0("wts_",Q), c())
+    assign(paste0("labels_",Q), c())
+    for (s in c(1:Q)) {
+      assign(paste0("wts_",Q), c(
+        eval(as.name(paste0("wts_",Q))),
+        sapply(grid, function(phi) { weight(Q=Q, s=s, phi=phi) })
+      ))
+      assign(paste0("labels_",Q), c(
+        eval(as.name(paste0("labels_",Q))),
+        paste0("s=", s)
+      ))
+    }
+  }
+  len <- length(grid)
+  cb_colors <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442",
+                 "#0072B2", "#D55E00", "#CC79A7", "#999999")
+
+  # Export: PDF 8"x3"
+  ggplot(
+    data.frame(
+      x = c(rep(grid,3), rep(grid,5), rep(grid,8)),
+      y = c(wts_3, wts_5, wts_8),
+      which = c(rep(labels_3, each=len),
+                rep(labels_5, each=len),
+                rep(labels_8, each=len)),
+      Q = c(rep("Q=3",3*len), rep("Q=5",5*len), rep("Q=8",8*len))
+    ),
+    aes(x=x, y=y, color=which)) +
+    geom_line() +
+    scale_color_manual(values=cb_colors) +
+    facet_wrap(~Q, ncol=3) +
+    labs(x=unname(latex2exp::TeX("$\\phi$")), y="Weight", color="")
+
+  # TEMP GRAPH #1: Effect curve
+  {
+
+    which <- c()
+    Qs <- c()
+    x <- c()
+    y <- c()
+    for (Q in c(3,5,8)) {
+
+      # Add "delay 1" points
+      which <- c(which, rep("Delay 1", length(grid)))
+      Qs <- c(Qs, rep(paste0("Q=",Q), length(grid)))
+      x <- c(x, grid)
+      y <- c(y, sapply(grid, function(phi) {
+        wts <- sapply(c(1:Q), function(s) { weight(Q=Q, s=s, phi=phi) })
+        return(sum(wts*c(0,rep(1,Q-1))))
+      }))
+
+      # Add "delay 2" points
+      which <- c(which, rep("Delay 2", length(grid)))
+      Qs <- c(Qs, rep(paste0("Q=",Q), length(grid)))
+      x <- c(x, grid)
+      y <- c(y, sapply(grid, function(phi) {
+        wts <- sapply(c(1:Q), function(s) { weight(Q=Q, s=s, phi=phi) })
+        return(sum(wts*c(0,0,rep(1,Q-2))))
+      }))
+
+      # Add "linear" points
+      which <- c(which, rep("Linear", length(grid)))
+      Qs <- c(Qs, rep(paste0("Q=",Q), length(grid)))
+      x <- c(x, grid)
+      y <- c(y, sapply(grid, function(phi) {
+        wts <- sapply(c(1:Q), function(s) { weight(Q=Q, s=s, phi=phi) })
+        return(sum(wts*(seq(0,1,length.out=(Q+1))[2:(Q+1)])))
+      }))
+
+    }
+    cb_colors <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442",
+                   "#0072B2", "#D55E00", "#CC79A7", "#999999")
+
+    # Export: PDF 8"x3"
+    ggplot(
+      data.frame(which=which, Q=Qs, x=x, y=y),
+      aes(x=x, y=y, color=which)) +
+      geom_line() +
+      scale_color_manual(values=cb_colors) +
+      labs(x=unname(latex2exp::TeX("$\\phi$")), y="delta_hat", color="") +
+      geom_hline(
+        aes(yintercept=y, color=which),
+        data = data.frame(
+          y = c(c(2/3-0.015,4/5,7/8), c(1/3,3/5-0.015,6/8), c(2/3,3/5,9/16)),
+          which = rep(c("Delay 1", "Delay 2", "Linear"), each=3),
+          Q = rep(c("Q=3","Q=5","Q=8"), times=3)
+        ),
+        linetype = "longdash"
+      ) +
+      facet_wrap(~Q, ncol=3)
+
+  }
+
+  # TEMP GRAPH #2: Random time effect
+  # (values from Mathematica)
+  {
+    rho_w <- c(0.2,0.5,0.8,0.2,0.5,0.8,0.2,0.5,0.8)
+    rho_b <- c(0.2,0.2,0.2,0.5,0.5,0.5,0.8,0.8,0.8)
+    w1 <- c(1,0.964,0.938,1.167,1.125,1.091,1.25,1.212,1.179)
+    w2 <- c(0.167,0.179,0.188,0.111,0.125,0.136,0.083,0.096,0.107)
+    w3 <- c(-0.167,-0.143,-0.125,-0.278,-0.25,-0.227,-0.333,-0.308,-0.286)
+    p_data2 <- data.frame(
+      which = rep(c("s=1","s=2","s=3"),each=9),
+      rho_w = paste0("rho_w=",rep(rho_w, 3)),
+      rho_b = rep(rho_b, 3),
+      weight = c(w1,w2,w3)
+    )
+    ggplot(
+      p_data2,
+      aes(x=rho_b, y=weight, color=which)) +
+      geom_line() +
+      scale_color_manual(values=cb_colors) +
+      facet_wrap(~rho_w, ncol=3) +
+      labs(x="rho_b", y="Weight", color="")
+  }
+
+  # TEMP GRAPH #2: Random Tx effect
+  # (values from Mathematica)
+  {
+    r0 <- rep(c(0.2,0.5,0.8,0.2,0.5,0.8,0.2,0.5,0.8),3)
+    r1 <- rep(c(0.2,0.2,0.2,0.5,0.5,0.5,0.8,0.8,0.8),3)
+    r2 <- c(rep(0.2,9),rep(0.5,9),rep(0.8,9))
+    w1 <- c(
+      c(0.923,0.872,0.804,1.088,1.037,0.956,1.267,1.224,1.141),
+      c(0.985,0.864,0.736,1.191,1.071,0.934,1.400,1.291,1.154),
+      c(1.025,0.547,0.529,1.547,1.000,0.717,1.581,1.541,1.159)
+    )
+    w2 <- c(
+      c(0.192,0.221,0.265,0.125,0.153,0.203,0.041,0.062,0.112),
+      c(0.170,0.224,0.284,0.087,0.143,0.212,-.011,0.039,0.108),
+      c(0.150,0.377,0.534,-.004,0.500,0.279,0.026,-.061,0.114)
+    )
+    w3 <- c(
+      c(-.115,-.093,-.069,-.213,-.190,-.159,-.308,-.286,-.253),
+      c(-.155,-.087,-.020,-.278,-.214,-.147,-.389,-.330,-.262),
+      c(-.175,0.075,-.063,-.543,-.500,0.004,-.607,-.480,-.273)
+    )
+    p_data3 <- data.frame(
+      which = rep(c("s=1","s=2","s=3"),each=27),
+      r0 = paste0("r0=",rep(r0, 3)),
+      r1 = rep(r1, 3),
+      r2 = paste0("r2=",rep(r2, 3)),
+      weight = c(w1,w2,w3)
+    )
+    ggplot(
+      p_data3,
+      aes(x=r1, y=weight, color=which)) +
+      geom_line() +
+      scale_color_manual(values=cb_colors) +
+      facet_grid(rows=vars(r2), cols=vars(r0))
+      labs(x="r1", y="Weight", color="")
+  }
 
 }
 
