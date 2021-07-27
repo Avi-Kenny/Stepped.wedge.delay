@@ -45,3 +45,4 @@ simba.out/simba.out
 *.simba
 R/scratch.R
 realdata/*
+temp

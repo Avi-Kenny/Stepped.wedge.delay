@@ -70,7 +70,7 @@ generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
   # Loop through clusters, time, and individuals
   for (i in 1:n_clusters) {
 
-    if((is.na(rte)[[1]])) {
+    if(identical(rte,list()) || is.na(rte)[[1]]) {
       alpha_i <- rnorm(1, mean=0, sd=tau)
       eta_i <- 0
     } else {
@@ -116,7 +116,7 @@ generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
         theta_l <- theta_ls[length(theta_ls)]
       }
 
-      if ((is.na(rte))[[1]] || rte$type=="height") {
+      if (identical(rte,list()) || is.na(rte)[[1]] || rte$type=="height") {
         mu_ij <- mu + beta_js[j] + (theta_l+eta_i)*x_ij + alpha_i
       } else if (rte$type=="height+shape") {
         if (l==0) {

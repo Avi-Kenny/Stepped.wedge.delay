@@ -7,14 +7,14 @@
 
 # Set global config
 cfg <- list(
-  level_set_which = "level_set_4",
+  level_set_which = "level_set_67",
   run_or_update = "run",
   num_sim = 1000,
   pkgs = c("dplyr", "stringr", "lme4", "rjags", "Iso", "sqldf", "mgcv", "MASS",
            "fastDummies", "car", "splines", "glmmTMB", "rstan"),
   pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales", "glmmTMB", # devtools::install_github("zeehio/facetscales")
                      "readxl"),
-  parallel = "outer",
+  parallel = "none",
   stop_at_error = FALSE,
   # mcmc = list(n.adapt=500, n.iter=500, n.burn=500, n.chains=1, thin=1)
   mcmc = list(n.adapt=2000, n.iter=3000, n.burn=1000, n.chains=3, thin=1)
@@ -57,13 +57,15 @@ if (load_pkgs_local) {
 }
 
 # Load simba + functions
-library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
-source("generate_dataset.R")
-source("one_simulation.R")
-source("plot_outcome.R")
-source("plot_sw_design.R")
-source("run_analysis.R")
-source("effect_curve.R")
+{
+  library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
+  source("generate_dataset.R")
+  source("one_simulation.R")
+  source("plot_outcome.R")
+  source("plot_sw_design.R")
+  source("run_analysis.R")
+  source("effect_curve.R")
+}
 
 # Set code blocks to run
 {
@@ -252,7 +254,7 @@ if (run_main) {
       delay_model = delay_models,
       n_extra_time_points = 0,
       rte = list(
-        "none" = NA,
+        "none" = list(),
         "height+shape" = list(type="height+shape", nu=1, rho1=-0.2, rho2=0.5) # "height" = list(type="height", nu=1, rho=-0.2)
       ),
       return_extra = list("rte"=list(rte=TRUE))
@@ -1311,13 +1313,52 @@ if (run_realdata) {
         vcov <- B %*% sigma_b_hat %*% t(B)
         se <- sqrt(diag(vcov))
 
+      } else if (type=="MEC") {
+
+        # Extract beta_s means
+        beta_s_hat <- c()
+        for (i in 1:len) {
+          beta_s_hat[i] <- mean(rstan::extract(model)[[paste0("beta_s_",i)]])
+        }
+
+        # Construct covariance matrix of s terms
+        sigma_s_hat <- matrix(NA, nrow=len, ncol=len)
+        for (i in 1:len) {
+          for (j in 1:len) {
+            sigma_s_hat[i,j] <- cov(
+              rstan::extract(model)[[paste0("beta_s_",i)]],
+              rstan::extract(model)[[paste0("beta_s_",j)]],
+              use = "complete.obs"
+            )
+          }
+        }
+
+        # Calculate theta_l_hat vector and sigma_l_hat matrix
+        B <- matrix(0, nrow=len, ncol=len)
+        for (i in 1:len) {
+          for (j in 1:len) {
+            if (i>=j) B[i,j] <- 1
+          }
+        }
+        delta <- B %*% beta_s_hat
+        vcov <- B %*% sigma_s_hat %*% t(B)
+        se <- as.numeric(sqrt(diag(vcov)))
+
       }
     }
 
     # Calculate time trend estimates and CIs
-    ind_time <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(j)"]
-    time <- c(0,as.numeric(summary(model)$coefficients$cond[,1][ind_time]))
-    se2 <- c(0,as.numeric(sqrt(diag(summary(model)$vcov[[1]])[ind_time])))
+    if (type=="MEC") {
+      # Extract beta_j means and sds
+      time <- c()
+      se2 <- c()
+      for (i in 2:J) {
+        time[i-1] <- mean(rstan::extract(model)[[paste0("beta_j_",i)]])
+        se2[i-1] <- sd(rstan::extract(model)[[paste0("beta_j_",i)]])
+      }
+      time <- c(0,time)
+      se2 <- c(0,se2)
+    }
 
     # Calculate TATE and LTE
     if (type=="IT") {
@@ -1331,7 +1372,7 @@ if (run_realdata) {
       se_ate_hat <- sqrt(A %*% vcov %*% t(A))[1,1]
       lte_hat <- delta[length(delta)]
       se_lte_hat <- se[length(delta)]
-    } else if (type %in% c("ETI","NCS")) {
+    } else if (type %in% c("ETI","NCS","MEC")) {
       A <- (1/len) * matrix(rep(1,len), nrow=1)
       ate_hat <- (A %*% delta)[1,1]
       se_ate_hat <- sqrt(A %*% vcov %*% t(A))[1,1]
@@ -1662,7 +1703,8 @@ if (run_realdata) {
         y ~ normal(y_mean,sigma);
     }")
 
-    fit <- stan(
+    # Fit model
+    model_mec <- stan(
       model_code = stan_code,
       data = stan_data,
       chains = mcmc$n.chains,
@@ -1670,6 +1712,7 @@ if (run_realdata) {
       warmup = mcmc$n.burn,
       thin = mcmc$thin
     )
+    est_mec <- est(model_mec, "MEC", J=7, len=6)
 
     # !!!!! MCMC diagnostics
     if (FALSE) {
@@ -1684,58 +1727,9 @@ if (run_realdata) {
       rstan::traceplot(fit, vars, inc_warmup=TRUE)
     }
 
-    # Extract beta_s means
-    beta_s_hat <- c()
-    for (i in 1:6) {
-      beta_s_hat[i] <- mean(rstan::extract(fit)[[paste0("beta_s_",i)]])
-    }
-
-    # Construct covariance matrix of s terms
-    sigma_s_hat <- matrix(NA, nrow=6, ncol=6)
-    for (i in 1:6) {
-      for (j in 1:6) {
-        sigma_s_hat[i,j] <- cov(
-          rstan::extract(fit)[[paste0("beta_s_",i)]],
-          rstan::extract(fit)[[paste0("beta_s_",j)]],
-          use = "complete.obs"
-        )
-      }
-    }
-
-    # Calculate theta_l_hat vector and sigma_l_hat matrix
-    B = rbind(
-      c(1,0,0,0,0,0),
-      c(1,1,0,0,0,0),
-      c(1,1,1,0,0,0),
-      c(1,1,1,1,0,0),
-      c(1,1,1,1,1,0),
-      c(1,1,1,1,1,1)
-    )
-    theta_l_hat <- B %*% beta_s_hat
-    sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
-
-    # Extract beta_j means and sds
-    beta_j_hat <- c()
-    sd_beta_j_hat <- c()
-    for (i in 2:7) {
-      beta_j_hat[i-1] <- mean(rstan::extract(fit)[[paste0("beta_j_",i)]])
-      sd_beta_j_hat[i-1] <- sd(rstan::extract(fit)[[paste0("beta_j_",i)]])
-    }
-
-    est_mec <- list(
-      delta = c(0,as.numeric(theta_l_hat)),
-      ci_l = c(0,as.numeric(theta_l_hat)-1.96*sqrt(diag(sigma_l_hat))),
-      ci_u = c(0,as.numeric(theta_l_hat)+1.96*sqrt(diag(sigma_l_hat))),
-      time = c(0,beta_j_hat),
-      ci2_l = c(0,beta_j_hat-1.96*sd_beta_j_hat),
-      ci2_u = c(0,beta_j_hat+1.96*sd_beta_j_hat)
-    )
-
   }
 
   # Display results
-  # models <- list("IT"=est_it, "ETI"=est_eti, "ETI (RTE)"=est_rte,
-  #                "RETI (3)"=est_reti, "NCS (4df)"=est_ncs)
   models <- list("IT"=est_it, "ETI"=est_eti, "RTE"=est_rte,
                  "RETI-3"=est_reti, "NCS-4"=est_ncs, "MEC"=est_mec)
   print_results(models=models, which="disinvestment")
