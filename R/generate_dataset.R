@@ -15,11 +15,11 @@
 #' @param n_extra_time_points Number of extra time points at the end of the
 #'     study (all clusters are in the treatment state)
 #' @param rte Specification of random treatment effects. Options include the
-#' @param time_trend One of c("incr","none")
 #'     following (see the manuscript for details):
 #'     * NA (no random treatment effects)
 #'     * list(type="height", rho=1, nu=1);
 #'     * list(type="height+shape", rho1=1, rho2=1, nu=1)
+#' @param time_trend One of c("incr","none")
 #' @return A list containing the following: \cr
 #'     * `params`: a list of the parameters supplied in the function call \cr
 #'     * `data`: the resulting data frame
