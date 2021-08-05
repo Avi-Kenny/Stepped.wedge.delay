@@ -7,7 +7,7 @@
 
 # Set global config
 cfg <- list(
-  level_set_which = "level_set_123",
+  level_set_which = "level_set_test",
   run_or_update = "run",
   num_sim = 1000,
   pkgs = c("dplyr", "stringr", "lme4", "Iso", "sqldf", "mgcv", "MASS",
@@ -16,8 +16,9 @@ cfg <- list(
                      "readxl"),
   parallel = "none",
   stop_at_error = FALSE,
-  # mcmc = list(n.adapt=500, n.iter=500, n.burn=500, n.chains=1, thin=1)
+  # mcmc = list(n.adapt=300, n.iter=300, n.burn=300, n.chains=1, thin=1)
   mcmc = list(n.adapt=2000, n.iter=3000, n.burn=1000, n.chains=3, thin=1)
+  # mcmc = list(n.adapt=2000, n.iter=5000, n.burn=3000, n.chains=3, thin=1)
 )
 
 # Set cluster config
@@ -88,12 +89,12 @@ if (FALSE) {
   # Generate dataset
   data <- generate_dataset(
     mu = 1,
-    n_clusters = 3, # 24
-    n_time_points = 4,
+    n_clusters = 24,
+    n_time_points = 7,
     n_ind_per_cluster = 20,
     theta = 0.5,
-    tau = 0.01, # 0.25
-    sigma = 0.01, # 1
+    tau = 0.25, # 0.5
+    sigma = 1, # 2
     data_type = "normal",
     # delay_model = list(type="spline", params=list(knots=c(0,1),slopes=1)),
     # delay_model = list(type="exp", params=list(d=1.5)),
@@ -145,25 +146,22 @@ if (run_main) {
 
     # !!!!! Testing
     level_set_test <- list(
-      n_clusters = c(3,30,300), # 24
-      n_time_points = 4, # 7
-      n_ind_per_cluster = 20, # 20
+      n_clusters = 24,
+      n_time_points = 7,
+      n_ind_per_cluster = 20, # 50
       theta = 0.5,
-      tau = c(0.01), # 0.25
-      sigma = c(0.01), # 1
+      tau = 0.25, # 0.5
+      sigma = 1, # 2
       data_type = "normal",
       method = list(
-        "IT" = list(method="IT"),
-        # "ETI" = list(method="ETI"),
-        "IT (no RE)" = list(method="IT", re="none"),
-        # "ETI (no RE)" = list(method="ETI", re="none")
-        "IT (2WFE)" = list(method="IT", re="2WFE")
+        "ETI" = list(method="ETI"),
+        "MEC: Flat Dirichlet" = list(method = "MCMC-MON-Stan", mcmc = cfg$mcmc,
+                                       enforce="Flat Dirichlet")
       ),
-      delay_model = delay_models[4],
+      delay_model = delay_models,
       n_extra_time_points = 0,
       rte = NA,
-      return_extra = list("none"=list())
-      # return_extra = list("whole_curve"=list(whole_curve=TRUE))
+      return_extra = list("whole_curve"=list(whole_curve=TRUE))
     )
 
     # Simulation 1: pitfalls of the immediate treatment (IT) model
@@ -378,7 +376,7 @@ if (run_main) {
 if (run_process_results) {
 
   # Set simulation
-  whichsim <- 4
+  whichsim <- 2
 
   # Read in simulation object
   file <- case_when(
@@ -669,9 +667,9 @@ if (run_viz) {
       cols = dplyr::vars(delay_model),
       rows = dplyr::vars(stat),
       scales=list(y=list(
-        # Bias = scale_y_continuous(labels=percent_format()),
-        Bias = scale_y_continuous(labels=percent_format(),
-                                  limits=c(-0.1,0.1)),
+        Bias = scale_y_continuous(labels=percent_format()),
+        # Bias = scale_y_continuous(labels=percent_format(),
+        #                           limits=c(-0.1,0.1)),
         Coverage = scale_y_continuous(labels=percent_format(),
                                       limits=y_lims),
         MSE = scale_y_continuous()
@@ -1699,7 +1697,6 @@ if (run_realdata) {
         real beta_j_6;
         real beta_j_7;
         real delta;
-        real<lower=0.01,upper=100> omega;
         simplex[6] smp;
         real alpha[I];
         real<lower=0> sigma;
@@ -1731,7 +1728,7 @@ if (run_realdata) {
       model {
         delta ~ normal(0,100);
         alpha ~ normal(0,tau);
-        smp ~ dirichlet([1*omega,1*omega,1*omega,1*omega,1*omega,1*omega]');
+        smp ~ dirichlet([1,1,1,1,1,1]');
         y ~ normal(y_mean,sigma);
     }")
 
@@ -1908,7 +1905,6 @@ if (run_realdata) {
         real beta_j_10; real beta_j_11; real beta_j_12; real beta_j_13;
         real beta_j_14; real beta_j_15;
         real delta;
-        real<lower=0.01,upper=100> omega;
         simplex[14] smp;
         real alpha[I];
         real<lower=0> sigma;
@@ -1930,9 +1926,7 @@ if (run_realdata) {
       model {
         delta ~ normal(0,100);
         alpha ~ normal(0,tau);
-        smp ~ dirichlet([1*omega,1*omega,1*omega,1*omega,1*omega,1*omega,
-                         1*omega,1*omega,1*omega,1*omega,1*omega,1*omega,
-                         1*omega,1*omega]');
+        smp ~ dirichlet([1,1,1,1,1,1,1,1,1,1,1,1,1,1]');
         for (n in 1:N) {
           y[n] ~ binomial_logit(bin_n[n],
             (beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +

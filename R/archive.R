@@ -77,6 +77,924 @@ delta_ss <- sapply(c(1:(n_knots-1)), function(l) {
 ##### Old methods from run_analysis() #####
 ###########################################.
 
+if (method$method=="MCMC-STEP-MON") {
+
+  data_mod <- data$data
+  data_mod %<>% dummy_cols(select_columns="j", remove_first_dummy=TRUE)
+  data_mod %<>% mutate(
+    s_1 = as.numeric(l>=1),
+    s_2 = as.numeric(l>=2),
+    s_3 = as.numeric(l>=3),
+    s_4 = as.numeric(l>=4),
+    s_5 = as.numeric(l>=5),
+    s_6 = as.numeric(l>=6)
+  )
+
+  if (method$enforce %in% c("none","rejection")) {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 ~ dnorm(0, 1.0E-4)
+          beta_s_5 ~ dnorm(0, 1.0E-4)
+          beta_s_4 ~ dnorm(0, 1.0E-4)
+          beta_s_3 ~ dnorm(0, 1.0E-4)
+          beta_s_2 ~ dnorm(0, 1.0E-4)
+          beta_s_1 ~ dnorm(0, 1.0E-4)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="prior; gamma prior") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- - alpha_s_6
+          beta_s_5 <- - alpha_s_5
+          beta_s_4 <- - alpha_s_4
+          beta_s_3 <- - alpha_s_3
+          beta_s_2 <- - alpha_s_2
+          beta_s_1 <- - alpha_s_1
+          alpha_s_6 ~ dgamma(1.0E-2, 1.0E-2)
+          alpha_s_5 ~ dgamma(1.0E-2, 1.0E-2)
+          alpha_s_4 ~ dgamma(1.0E-2, 1.0E-2)
+          alpha_s_3 ~ dgamma(1.0E-2, 1.0E-2)
+          alpha_s_2 ~ dgamma(1.0E-2, 1.0E-2)
+          alpha_s_1 ~ dgamma(1.0E-2, 1.0E-2)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="prior; unif prior") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 ~ dunif(-10,0)
+          beta_s_5 ~ dunif(-10,0)
+          beta_s_4 ~ dunif(-10,0)
+          beta_s_3 ~ dunif(-10,0)
+          beta_s_2 ~ dunif(-10,0)
+          beta_s_1 ~ dunif(-10,0)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="exp; exp prior") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- exp(alpha_s_6)
+          beta_s_5 <- exp(alpha_s_5)
+          beta_s_4 <- exp(alpha_s_4)
+          beta_s_3 <- exp(alpha_s_3)
+          beta_s_2 <- exp(alpha_s_2)
+          beta_s_1 <- exp(alpha_s_1)
+          alpha_s_6 <- log(10) - e_s_6
+          alpha_s_5 <- log(10) - e_s_5
+          alpha_s_4 <- log(10) - e_s_4
+          alpha_s_3 <- log(10) - e_s_3
+          alpha_s_2 <- log(10) - e_s_2
+          alpha_s_1 <- log(10) - e_s_1
+          e_s_6 ~ dexp(1)
+          e_s_5 ~ dexp(1)
+          e_s_4 ~ dexp(1)
+          e_s_3 ~ dexp(1)
+          e_s_2 ~ dexp(1)
+          e_s_1 ~ dexp(1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="new mix") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, e_l_6, -1*e_r_6)
+          beta_s_5 <- ifelse(bern_5, e_l_5, -1*e_r_5)
+          beta_s_4 <- ifelse(bern_4, e_l_4, -1*e_r_4)
+          beta_s_3 <- ifelse(bern_3, e_l_3, -1*e_r_3)
+          beta_s_2 <- ifelse(bern_2, e_l_2, -1*e_r_2)
+          beta_s_1 <- ifelse(bern_1, e_l_1, -1*e_r_1)
+          e_l_6 ~ dexp(10)
+          e_l_5 ~ dexp(10)
+          e_l_4 ~ dexp(10)
+          e_l_3 ~ dexp(10)
+          e_l_2 ~ dexp(10)
+          e_l_1 ~ dexp(10)
+          e_r_6 ~ dexp(0.1)
+          e_r_5 ~ dexp(0.1)
+          e_r_4 ~ dexp(0.1)
+          e_r_3 ~ dexp(0.1)
+          e_r_2 ~ dexp(0.1)
+          e_r_1 ~ dexp(0.1)
+          bern_6 ~ dbern(0.001)
+          bern_5 ~ dbern(0.001)
+          bern_4 ~ dbern(0.001)
+          bern_3 ~ dbern(0.001)
+          bern_2 ~ dbern(0.001)
+          bern_1 ~ dbern(0.001)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="exp; mix prior 0.1") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
+          alpha_s_6 <- log(10) - e_s_6
+          alpha_s_5 <- log(10) - e_s_5
+          alpha_s_4 <- log(10) - e_s_4
+          alpha_s_3 <- log(10) - e_s_3
+          alpha_s_2 <- log(10) - e_s_2
+          alpha_s_1 <- log(10) - e_s_1
+          bern_6 ~ dbern(0.1)
+          bern_5 ~ dbern(0.1)
+          bern_4 ~ dbern(0.1)
+          bern_3 ~ dbern(0.1)
+          bern_2 ~ dbern(0.1)
+          bern_1 ~ dbern(0.1)
+          e_s_6 ~ dexp(1)
+          e_s_5 ~ dexp(1)
+          e_s_4 ~ dexp(1)
+          e_s_3 ~ dexp(1)
+          e_s_2 ~ dexp(1)
+          e_s_1 ~ dexp(1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="exp; mix prior 0.1dir") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + dir*( beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] ) + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
+          alpha_s_6 <- log(10) - e_s_6
+          alpha_s_5 <- log(10) - e_s_5
+          alpha_s_4 <- log(10) - e_s_4
+          alpha_s_3 <- log(10) - e_s_3
+          alpha_s_2 <- log(10) - e_s_2
+          alpha_s_1 <- log(10) - e_s_1
+          bern_6 ~ dbern(0.1)
+          bern_5 ~ dbern(0.1)
+          bern_4 ~ dbern(0.1)
+          bern_3 ~ dbern(0.1)
+          bern_2 ~ dbern(0.1)
+          bern_1 ~ dbern(0.1)
+          dir <- ifelse(bern_0, 1, -1)
+          bern_0 ~ dbern(0.5)
+          e_s_6 ~ dexp(1)
+          e_s_5 ~ dexp(1)
+          e_s_4 ~ dexp(1)
+          e_s_3 ~ dexp(1)
+          e_s_2 ~ dexp(1)
+          e_s_1 ~ dexp(1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="exp; mix prior v2") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
+          alpha_s_6 <- log(10) - e_s_6
+          alpha_s_5 <- log(10) - e_s_5
+          alpha_s_4 <- log(10) - e_s_4
+          alpha_s_3 <- log(10) - e_s_3
+          alpha_s_2 <- log(10) - e_s_2
+          alpha_s_1 <- log(10) - e_s_1
+          bern_6 ~ dbern(p)
+          bern_5 ~ dbern(p)
+          bern_4 ~ dbern(p)
+          bern_3 ~ dbern(p)
+          bern_2 ~ dbern(p)
+          bern_1 ~ dbern(p)
+          e_s_6 ~ dexp(1)
+          e_s_5 ~ dexp(1)
+          e_s_4 ~ dexp(1)
+          e_s_3 ~ dexp(1)
+          e_s_2 ~ dexp(1)
+          e_s_1 ~ dexp(1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+          p ~ dunif(0,1)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="exp; mix prior v2b") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
+          alpha_s_6 <- log(10) - e_s_6
+          alpha_s_5 <- log(10) - e_s_5
+          alpha_s_4 <- log(10) - e_s_4
+          alpha_s_3 <- log(10) - e_s_3
+          alpha_s_2 <- log(10) - e_s_2
+          alpha_s_1 <- log(10) - e_s_1
+          bern_6 ~ dbern(p6)
+          bern_5 ~ dbern(p5)
+          bern_4 ~ dbern(p4)
+          bern_3 ~ dbern(p3)
+          bern_2 ~ dbern(p2)
+          bern_1 ~ dbern(p1)
+          e_s_6 ~ dexp(1)
+          e_s_5 ~ dexp(1)
+          e_s_4 ~ dexp(1)
+          e_s_3 ~ dexp(1)
+          e_s_2 ~ dexp(1)
+          e_s_1 ~ dexp(1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+          p6 ~ dunif(0,1)
+          p5 ~ dunif(0,1)
+          p4 ~ dunif(0,1)
+          p3 ~ dunif(0,1)
+          p2 ~ dunif(0,1)
+          p1 ~ dunif(0,1)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="exp; mix prior v3") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + dir*(beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n]) + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
+          alpha_s_6 <- log(10) - e_s_6
+          alpha_s_5 <- log(10) - e_s_5
+          alpha_s_4 <- log(10) - e_s_4
+          alpha_s_3 <- log(10) - e_s_3
+          alpha_s_2 <- log(10) - e_s_2
+          alpha_s_1 <- log(10) - e_s_1
+          bern_6 ~ dbern(p)
+          bern_5 ~ dbern(p)
+          bern_4 ~ dbern(p)
+          bern_3 ~ dbern(p)
+          bern_2 ~ dbern(p)
+          bern_1 ~ dbern(p)
+          e_s_6 ~ dexp(1)
+          e_s_5 ~ dexp(1)
+          e_s_4 ~ dexp(1)
+          e_s_3 ~ dexp(1)
+          e_s_2 ~ dexp(1)
+          e_s_1 ~ dexp(1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+          p ~ dunif(0,1)
+          dir <- ifelse(bern_0, 1, -1)
+          bern_0 ~ dbern(0.5)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="exp; mix prior 0.2") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, exp(alpha_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, exp(alpha_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, exp(alpha_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, exp(alpha_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, exp(alpha_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, exp(alpha_s_1))
+          alpha_s_6 <- log(10) - e_s_6
+          alpha_s_5 <- log(10) - e_s_5
+          alpha_s_4 <- log(10) - e_s_4
+          alpha_s_3 <- log(10) - e_s_3
+          alpha_s_2 <- log(10) - e_s_2
+          alpha_s_1 <- log(10) - e_s_1
+          bern_6 ~ dbern(0.2)
+          bern_5 ~ dbern(0.2)
+          bern_4 ~ dbern(0.2)
+          bern_3 ~ dbern(0.2)
+          bern_2 ~ dbern(0.2)
+          bern_1 ~ dbern(0.2)
+          e_s_6 ~ dexp(1)
+          e_s_5 ~ dexp(1)
+          e_s_4 ~ dexp(1)
+          e_s_3 ~ dexp(1)
+          e_s_2 ~ dexp(1)
+          e_s_1 ~ dexp(1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="exp; N(1,10) mix (0.1)") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, -exp(e_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, -exp(e_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, -exp(e_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, -exp(e_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, -exp(e_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, -exp(e_s_1))
+          bern_6 ~ dbern(0.1)
+          bern_5 ~ dbern(0.1)
+          bern_4 ~ dbern(0.1)
+          bern_3 ~ dbern(0.1)
+          bern_2 ~ dbern(0.1)
+          bern_1 ~ dbern(0.1)
+          e_s_6 ~ dnorm(1, 0.1)
+          e_s_5 ~ dnorm(1, 0.1)
+          e_s_4 ~ dnorm(1, 0.1)
+          e_s_3 ~ dnorm(1, 0.1)
+          e_s_2 ~ dnorm(1, 0.1)
+          e_s_1 ~ dnorm(1, 0.1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="exp; N(1,10) mix (0.2)") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- ifelse(bern_6, 0, -exp(e_s_6))
+          beta_s_5 <- ifelse(bern_5, 0, -exp(e_s_5))
+          beta_s_4 <- ifelse(bern_4, 0, -exp(e_s_4))
+          beta_s_3 <- ifelse(bern_3, 0, -exp(e_s_3))
+          beta_s_2 <- ifelse(bern_2, 0, -exp(e_s_2))
+          beta_s_1 <- ifelse(bern_1, 0, -exp(e_s_1))
+          bern_6 ~ dbern(0.2)
+          bern_5 ~ dbern(0.2)
+          bern_4 ~ dbern(0.2)
+          bern_3 ~ dbern(0.2)
+          bern_2 ~ dbern(0.2)
+          bern_1 ~ dbern(0.2)
+          e_s_6 ~ dnorm(1, 0.1)
+          e_s_5 ~ dnorm(1, 0.1)
+          e_s_4 ~ dnorm(1, 0.1)
+          e_s_3 ~ dnorm(1, 0.1)
+          e_s_2 ~ dnorm(1, 0.1)
+          e_s_1 ~ dnorm(1, 0.1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="exp; N(1,10) prior") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- - exp(e_s_6)
+          beta_s_5 <- - exp(e_s_5)
+          beta_s_4 <- - exp(e_s_4)
+          beta_s_3 <- - exp(e_s_3)
+          beta_s_2 <- - exp(e_s_2)
+          beta_s_1 <- - exp(e_s_1)
+          e_s_6 ~ dnorm(1, 0.1)
+          e_s_5 ~ dnorm(1, 0.1)
+          e_s_4 ~ dnorm(1, 0.1)
+          e_s_3 ~ dnorm(1, 0.1)
+          e_s_2 ~ dnorm(1, 0.1)
+          e_s_1 ~ dnorm(1, 0.1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  if (method$enforce=="exp; N(0,10) prior") {
+
+    jags_code <- quote("
+        model {
+          for (n in 1:N) {
+            y[n] ~ dnorm(beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] + beta_j_7*j_7[n]
+            + beta_s_1*s_1[n] + beta_s_2*s_2[n] + beta_s_3*s_3[n] +
+            beta_s_4*s_4[n] + beta_s_5*s_5[n] + beta_s_6*s_6[n] + alpha[i[n]],
+            1/(sigma^2))
+          }
+          for (n in 1:I) {
+            alpha[n] ~ dnorm(0, 1/(tau^2))
+          }
+          beta_s_6 <- - exp(e_s_6)
+          beta_s_5 <- - exp(e_s_5)
+          beta_s_4 <- - exp(e_s_4)
+          beta_s_3 <- - exp(e_s_3)
+          beta_s_2 <- - exp(e_s_2)
+          beta_s_1 <- - exp(e_s_1)
+          e_s_6 ~ dnorm(0, 0.1)
+          e_s_5 ~ dnorm(0, 0.1)
+          e_s_4 ~ dnorm(0, 0.1)
+          e_s_3 ~ dnorm(0, 0.1)
+          e_s_2 ~ dnorm(0, 0.1)
+          e_s_1 ~ dnorm(0, 0.1)
+          beta_j_7 ~ dnorm(0, 1.0E-4)
+          beta_j_6 ~ dnorm(0, 1.0E-4)
+          beta_j_5 ~ dnorm(0, 1.0E-4)
+          beta_j_4 ~ dnorm(0, 1.0E-4)
+          beta_j_3 ~ dnorm(0, 1.0E-4)
+          beta_j_2 ~ dnorm(0, 1.0E-4)
+          beta0 ~ dnorm(0, 1.0E-4)
+          tau <- 1/sqrt(tau_prec)
+          tau_prec ~ dgamma(1.0E-3, 1.0E-3)
+          sigma <- 1/sqrt(sigma_prec)
+          sigma_prec ~ dgamma(1.0E-3, 1.0E-3)
+        }
+      ")
+
+  }
+
+  jm <- jags.model(
+    file = textConnection(jags_code),
+    data = list(
+      I = length(unique(data_mod$i)),
+      N = nrow(data_mod),
+      y = data_mod$y,
+      i = data_mod$i,
+      j_2 = data_mod$j_2,
+      j_3 = data_mod$j_3,
+      j_4 = data_mod$j_4,
+      j_5 = data_mod$j_5,
+      j_6 = data_mod$j_6,
+      j_7 = data_mod$j_7,
+      s_1 = data_mod$s_1,
+      s_2 = data_mod$s_2,
+      s_3 = data_mod$s_3,
+      s_4 = data_mod$s_4,
+      s_5 = data_mod$s_5,
+      s_6 = data_mod$s_6
+    ),
+    n.chains = mcmc$n.chains,
+    n.adapt = mcmc$n.adapt
+  )
+  update(jm, n.iter = mcmc$n.burn)
+  output <- coda.samples(
+    model = jm,
+    variable.names = c("beta_s_1", "beta_s_2", "beta_s_3", "beta_s_4",
+                       # "beta_s_5", "beta_s_6", "dir"),
+                       "beta_s_5", "beta_s_6"),
+    n.iter = mcmc$n.iter,
+    thin = mcmc$thin
+  )
+
+  n_samp <- length(output[[1]][,1])
+
+  # MCMC diagnostics
+  if (FALSE) {
+    n_samp <- length(output[[1]][,1])
+    var <- "dir"
+    c1 <- output[[1]][1:n_samp,var]
+    c2 <- output[[2]][1:n_samp,var]
+    ggplot(
+      data.frame(
+        x = rep(c(1:n_samp),2),
+        y = c(c1,c2),
+        chain = rep(c(1:2), each=n_samp)
+      ),
+      aes(x=x, y=y, color=factor(chain))) +
+      geom_line() +
+      labs(title=var)
+  }
+
+  # Extract beta_s means
+  beta_s_hat <- c()
+  for (i in 1:6) {
+    beta_s_hat[i] <- mean(
+      unlist(lapply(output, function(l) {
+        l[1:n_samp,paste0("beta_s_",i)]
+      })),
+      na.rm = TRUE
+    )
+  }
+
+  # Construct covariance matrix of s terms
+  sigma_s_hat <- matrix(NA, nrow=6, ncol=6)
+  for (i in 1:6) {
+    for (j in 1:6) {
+      sigma_s_hat[i,j] <- cov(
+        unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",i)]})),
+        unlist(lapply(output, function(l) {l[1:n_samp,paste0("beta_s_",j)]})),
+        use = "complete.obs"
+      )
+    }
+  }
+
+  # Calculate theta_l_hat vector and sigma_l_hat matrix
+  B = rbind(
+    c(1,0,0,0,0,0),
+    c(1,1,0,0,0,0),
+    c(1,1,1,0,0,0),
+    c(1,1,1,1,0,0),
+    c(1,1,1,1,1,0),
+    c(1,1,1,1,1,1)
+  )
+  theta_l_hat <- B %*% beta_s_hat
+  sigma_l_hat <- B %*% sigma_s_hat %*% t(B)
+
+  res <- res(theta_l_hat,sigma_l_hat,method$effect_reached)
+
+  if (is.null(return_extra$whole_curve)) {
+    return (res)
+  } else if (return_extra$whole_curve) {
+    return(c(res,list(
+      theta_1_hat = theta_l_hat[1],
+      theta_2_hat = theta_l_hat[2],
+      theta_3_hat = theta_l_hat[3],
+      theta_4_hat = theta_l_hat[4],
+      theta_5_hat = theta_l_hat[5],
+      theta_6_hat = theta_l_hat[6]
+    )))
+  }
+
+}
+
+if (method$enforce=="simplex 5c") {
+
+  stan_code <- quote("
+        data {
+          int I;
+          int N;
+          real y[N];
+          int i[N];
+          real j_2[N];
+          real j_3[N];
+          real j_4[N];
+          real j_5[N];
+          real j_6[N];
+          real j_7[N];
+          real s_1[N];
+          real s_2[N];
+          real s_3[N];
+          real s_4[N];
+          real s_5[N];
+          real s_6[N];
+        }
+        parameters {
+          real beta0;
+          real beta_j_2;
+          real beta_j_3;
+          real beta_j_4;
+          real beta_j_5;
+          real beta_j_6;
+          real beta_j_7;
+          real delta;
+          real<lower=0.01,upper=100> omega;
+          simplex[6] smp;
+          real alpha[I];
+          real<lower=0> sigma;
+          real<lower=0> tau;
+        }
+        transformed parameters {
+          real beta_s_1;
+          real beta_s_2;
+          real beta_s_3;
+          real beta_s_4;
+          real beta_s_5;
+          real beta_s_6;
+          vector[N] y_mean;
+          beta_s_1 = delta * smp[1];
+          beta_s_2 = delta * smp[2];
+          beta_s_3 = delta * smp[3];
+          beta_s_4 = delta * smp[4];
+          beta_s_5 = delta * smp[5];
+          beta_s_6 = delta * smp[6];
+          for (n in 1:N) {
+            y_mean[n] = beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
+            beta_j_4*j_4[n] + beta_j_5*j_5[n] + beta_j_6*j_6[n] +
+            beta_j_7*j_7[n] + delta*(
+              smp[1]*s_1[n] + smp[2]*s_2[n] + smp[3]*s_3[n] +
+              smp[4]*s_4[n] + smp[5]*s_5[n] + smp[6]*s_6[n]
+            ) + alpha[i[n]];
+          }
+        }
+        model {
+          alpha ~ normal(0,tau);
+          smp ~ dirichlet([10*omega,10*omega,10*omega,1*omega,1*omega,1*omega]');
+          y ~ normal(y_mean,sigma);
+      }")
+
+}
+
+
+
 if (method$enforce=="simplex 6") {
 
   # -11 simplex 6

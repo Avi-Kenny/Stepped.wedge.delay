@@ -1,3 +1,29 @@
+
+# Code PAVA by hand
+{
+
+  x <- c(0,1,2,3)
+  y <- c(0,1,0.5,2)
+  weights <- c(1,1,1,1)
+  # !!!!! Consider the negative case
+  tol <- 0.0001
+  sum_diffs <- 2*tol
+  while (sum_diffs>tol) {
+    sum_diffs <- 0
+    for (i in 1:(length(x)-1)) {
+      if (y[i+1]<y[i]) {
+        sum_diffs <- sum_diffs + ( y[i]-y[i+1] )
+        newval <- (weights[i]/(weights[i]+weights[i+1]))*y[i] +
+                  (weights[i+1]/(weights[i]+weights[i+1]))*y[i+1]
+        y[i] <- newval
+        y[i+1] <- newval
+      }
+    }
+  }
+  print(y)
+
+}
+
 # 3x4 stepped wedge
 {
   # Set design matrix X
