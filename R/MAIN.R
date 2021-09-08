@@ -9,12 +9,12 @@
 cfg <- list(
   level_set_which = "level_set_test",
   run_or_update = "run",
-  num_sim = 1000,
+  num_sim = 100,
   pkgs = c("dplyr", "stringr", "lme4", "Iso", "sqldf", "mgcv", "MASS",
            "fastDummies", "car", "splines", "glmmTMB", "rstan"),
   pkgs_nocluster = c("ggplot2", "viridis", "scales", "facetscales", "glmmTMB", # devtools::install_github("zeehio/facetscales")
                      "readxl"),
-  parallel = "none",
+  parallel = "outer",
   stop_at_error = FALSE,
   # mcmc = list(n.adapt=300, n.iter=300, n.burn=300, n.chains=1, thin=1)
   mcmc = list(n.adapt=2000, n.iter=3000, n.burn=1000, n.chains=3, thin=1)
@@ -155,8 +155,9 @@ if (run_main) {
       data_type = "normal",
       method = list(
         "ETI" = list(method="ETI"),
-        "MEC: Flat Dirichlet" = list(method = "MCMC-MON-Stan", mcmc = cfg$mcmc,
-                                       enforce="Flat Dirichlet")
+        "ETI+PAVA" = list(method="ETI+PAVA")
+        # "MEC: Flat Dirichlet" = list(method = "MCMC-MON-Stan", mcmc = cfg$mcmc,
+        #                                enforce="Flat Dirichlet")
       ),
       delay_model = delay_models,
       n_extra_time_points = 0,
@@ -275,6 +276,26 @@ if (run_main) {
       return_extra = list("none"=list())
     )
 
+    # # Simulation appx1: NCS with mroe time points
+    # # 12 level combos
+    # level_set_appx1 <- list(
+    #   n_clusters = 24,
+    #   n_time_points = 13,
+    #   n_ind_per_cluster = 20, # 50
+    #   theta = 0.5,
+    #   tau = 0.25, # 0.5
+    #   sigma = 1, # 2
+    #   data_type = "normal",
+    #   method = list(
+    #     "ETI" = list(method="ETI"),
+    #     "NCS (4df)" = list(method="NCS-4df")
+    #   ),
+    #   delay_model = delay_models,
+    #   n_extra_time_points = 0,
+    #   rte = NA,
+    #   return_extra = list("whole_curve"=list(whole_curve=TRUE))
+    # )
+
     level_set <- eval(as.name(cfg$level_set_which))
 
   }
@@ -297,8 +318,6 @@ if (run_main) {
 # qsub -hold_jid 1992345 -v simba_run='last',cluster='bayes',type='R',project='z.stepped.wedge' -cwd -e ./io/ -o ./io/ run_r.sh
 
 if (run_main) {
-
-  library(simba) # devtools::install_github(repo="Avi-Kenny/simba")
 
   if (cfg$run_or_update=="run") {
 
@@ -1697,6 +1716,7 @@ if (run_realdata) {
         real beta_j_6;
         real beta_j_7;
         real delta;
+        real<lower=0.01,upper=100> omega;
         simplex[6] smp;
         real alpha[I];
         real<lower=0> sigma;
@@ -1728,7 +1748,7 @@ if (run_realdata) {
       model {
         delta ~ normal(0,100);
         alpha ~ normal(0,tau);
-        smp ~ dirichlet([1,1,1,1,1,1]');
+        smp ~ dirichlet([5*omega,5*omega,5*omega,1*omega,1*omega,1*omega]');
         y ~ normal(y_mean,sigma);
     }")
 
@@ -1823,9 +1843,9 @@ if (run_realdata) {
     est_rte <- est(model_rte, "ETI", J=15, len=length(unique(df$l))-1)
   }
 
-  # RETI model (R=8)
+  # RETI model (R=7)
   {
-    r <- 8
+    r <- 7
     df_reti <- df %>% mutate(l = ifelse(l>=r,r,l))
     model_reti <- glmmTMB(
       cbind(y,n-y) ~ factor(j) + factor(l) + (1|i) + (1|i:site),
@@ -1905,6 +1925,7 @@ if (run_realdata) {
         real beta_j_10; real beta_j_11; real beta_j_12; real beta_j_13;
         real beta_j_14; real beta_j_15;
         real delta;
+        real<lower=0.01,upper=100> omega;
         simplex[14] smp;
         real alpha[I];
         real<lower=0> sigma;
@@ -1926,7 +1947,9 @@ if (run_realdata) {
       model {
         delta ~ normal(0,100);
         alpha ~ normal(0,tau);
-        smp ~ dirichlet([1,1,1,1,1,1,1,1,1,1,1,1,1,1]');
+        smp ~ dirichlet([5*omega,5*omega,5*omega,5*omega,5*omega,
+                         5*omega,5*omega,1*omega,1*omega,1*omega,
+                         1*omega,1*omega,1*omega,1*omega]');
         for (n in 1:N) {
           y[n] ~ binomial_logit(bin_n[n],
             (beta0 + beta_j_2*j_2[n] + beta_j_3*j_3[n] +
@@ -1973,7 +1996,7 @@ if (run_realdata) {
 
   # Display results
   models <- list("IT"=est_it, "ETI"=est_eti, "RTE"=est_rte,
-                 "RETI-8"=est_reti, "NCS-4"=est_ncs, "MEC"=est_mec)
+                 "RETI-7"=est_reti, "NCS-4"=est_ncs, "MEC"=est_mec)
   print_results(models=models, which="wa_state")
   print_graphs(models=models, which="wa_state", ncol=3)
 
@@ -2032,7 +2055,6 @@ if (run_misc) {
   }
 
   # Cases corresponding to a fixed value of S; weights as a function of rho
-  # Export: 5" x 3"
   for (Q in c(3,5,8)) {
     assign(paste0("wts_",Q), c())
     assign(paste0("labels_",Q), c())
@@ -2067,7 +2089,82 @@ if (run_misc) {
     facet_wrap(~Q, ncol=3) +
     labs(x=unname(latex2exp::TeX("$\\phi$")), y="Weight", color="")
 
-  # TEMP GRAPH #1: Effect curve
+  # Appendix graph #1: Random time effect
+  # (values from Mathematica)
+  # Export: PDF 8"x3"
+  {
+    rho_w <- c(0.2,0.5,0.8,0.2,0.5,0.8,0.2,0.5,0.8)
+    rho_b <- c(0.2,0.2,0.2,0.5,0.5,0.5,0.8,0.8,0.8)
+    w1 <- c(1,0.964,0.938,1.167,1.125,1.091,1.25,1.212,1.179)
+    w2 <- c(0.167,0.179,0.188,0.111,0.125,0.136,0.083,0.096,0.107)
+    w3 <- c(-0.167,-0.143,-0.125,-0.278,-0.25,-0.227,-0.333,-0.308,-0.286)
+    p_data2 <- data.frame(
+      which = rep(c("s=1","s=2","s=3"),each=9),
+      rho_w = factor(rep(rho_w, 3),
+                     labels=c(latex2exp::TeX("$\\rho_w=0.2$"),
+                              latex2exp::TeX("$\\rho_w=0.5$"),
+                              latex2exp::TeX("$\\rho_w=0.8$"))),
+      rho_b = rep(rho_b, 3),
+      weight = c(w1,w2,w3)
+    )
+    ggplot(
+      p_data2,
+      aes(x=rho_b, y=weight, color=which)) +
+      geom_line() +
+      scale_color_manual(values=cb_colors) +
+      facet_wrap(~rho_w, ncol=3, labeller=label_parsed) +
+      labs(x=latex2exp::TeX("$\\rho_b$"), y="Weight", color="")
+  }
+
+  # Appendix graph #2: Random Tx effect
+  # (values from Mathematica)
+  # Export: PDF 8"x5"
+  {
+    r0 <- rep(c(0.2,0.5,0.8,0.2,0.5,0.8,0.2,0.5,0.8),3)
+    r1 <- rep(c(0.2,0.2,0.2,0.5,0.5,0.5,0.8,0.8,0.8),3)
+    r2 <- c(rep(0.2,9),rep(0.5,9),rep(0.8,9))
+    w1 <- c(
+      c(0.923,0.872,0.804,1.088,1.037,0.956,1.267,1.224,1.141),
+      c(0.985,0.864,0.736,1.191,1.071,0.934,1.400,1.291,1.154),
+      c(1.025,0.547,0.529,1.547,1.000,0.717,1.581,1.541,1.159)
+    )
+    w2 <- c(
+      c(0.192,0.221,0.265,0.125,0.153,0.203,0.041,0.062,0.112),
+      c(0.170,0.224,0.284,0.087,0.143,0.212,-.011,0.039,0.108),
+      c(0.150,0.377,0.534,-.004,0.500,0.279,0.026,-.061,0.114)
+    )
+    w3 <- c(
+      c(-.115,-.093,-.069,-.213,-.190,-.159,-.308,-.286,-.253),
+      c(-.155,-.087,-.020,-.278,-.214,-.147,-.389,-.330,-.262),
+      c(-.175,0.075,-.063,-.543,-.500,0.004,-.607,-.480,-.273)
+    )
+    p_data3 <- data.frame(
+      which = rep(c("s=1","s=2","s=3"),each=27),
+
+      r0 = factor(rep(r0, 3),
+                     labels=c(latex2exp::TeX("$\\rho_0=0.2$"),
+                              latex2exp::TeX("$\\rho_0=0.5$"),
+                              latex2exp::TeX("$\\rho_0=0.8$"))),
+      # r0 = paste0("r0=",rep(r0, 3)),
+      r1 = rep(r1, 3),
+      # r2 = paste0("r2=",rep(r2, 3)),
+      r2 = factor(rep(r2, 3),
+                  labels=c(latex2exp::TeX("$\\rho_{10}=0.2$"),
+                           latex2exp::TeX("$\\rho_{10}=0.5$"),
+                           latex2exp::TeX("$\\rho_{10}=0.8$"))),
+      weight = c(w1,w2,w3)
+    )
+    ggplot(
+      p_data3,
+      aes(x=r1, y=weight, color=which)) +
+      geom_line() +
+      scale_color_manual(values=cb_colors) +
+      facet_grid(rows=dplyr::vars(r2), cols=dplyr::vars(r0),
+                 labeller=label_parsed) +
+      labs(x=latex2exp::TeX("$\\rho_1$"), y="Weight", color="")
+  }
+
+  # TEMP GRAPH #1: Effect curve (unused)
   {
 
     which <- c()
@@ -2125,66 +2222,6 @@ if (run_misc) {
       ) +
       facet_wrap(~Q, ncol=3)
 
-  }
-
-  # TEMP GRAPH #2: Random time effect
-  # (values from Mathematica)
-  {
-    rho_w <- c(0.2,0.5,0.8,0.2,0.5,0.8,0.2,0.5,0.8)
-    rho_b <- c(0.2,0.2,0.2,0.5,0.5,0.5,0.8,0.8,0.8)
-    w1 <- c(1,0.964,0.938,1.167,1.125,1.091,1.25,1.212,1.179)
-    w2 <- c(0.167,0.179,0.188,0.111,0.125,0.136,0.083,0.096,0.107)
-    w3 <- c(-0.167,-0.143,-0.125,-0.278,-0.25,-0.227,-0.333,-0.308,-0.286)
-    p_data2 <- data.frame(
-      which = rep(c("s=1","s=2","s=3"),each=9),
-      rho_w = paste0("rho_w=",rep(rho_w, 3)),
-      rho_b = rep(rho_b, 3),
-      weight = c(w1,w2,w3)
-    )
-    ggplot(
-      p_data2,
-      aes(x=rho_b, y=weight, color=which)) +
-      geom_line() +
-      scale_color_manual(values=cb_colors) +
-      facet_wrap(~rho_w, ncol=3) +
-      labs(x="rho_b", y="Weight", color="")
-  }
-
-  # TEMP GRAPH #2: Random Tx effect
-  # (values from Mathematica)
-  {
-    r0 <- rep(c(0.2,0.5,0.8,0.2,0.5,0.8,0.2,0.5,0.8),3)
-    r1 <- rep(c(0.2,0.2,0.2,0.5,0.5,0.5,0.8,0.8,0.8),3)
-    r2 <- c(rep(0.2,9),rep(0.5,9),rep(0.8,9))
-    w1 <- c(
-      c(0.923,0.872,0.804,1.088,1.037,0.956,1.267,1.224,1.141),
-      c(0.985,0.864,0.736,1.191,1.071,0.934,1.400,1.291,1.154),
-      c(1.025,0.547,0.529,1.547,1.000,0.717,1.581,1.541,1.159)
-    )
-    w2 <- c(
-      c(0.192,0.221,0.265,0.125,0.153,0.203,0.041,0.062,0.112),
-      c(0.170,0.224,0.284,0.087,0.143,0.212,-.011,0.039,0.108),
-      c(0.150,0.377,0.534,-.004,0.500,0.279,0.026,-.061,0.114)
-    )
-    w3 <- c(
-      c(-.115,-.093,-.069,-.213,-.190,-.159,-.308,-.286,-.253),
-      c(-.155,-.087,-.020,-.278,-.214,-.147,-.389,-.330,-.262),
-      c(-.175,0.075,-.063,-.543,-.500,0.004,-.607,-.480,-.273)
-    )
-    p_data3 <- data.frame(
-      which = rep(c("s=1","s=2","s=3"),each=27),
-      r0 = paste0("r0=",rep(r0, 3)),
-      r1 = rep(r1, 3),
-      r2 = paste0("r2=",rep(r2, 3)),
-      weight = c(w1,w2,w3)
-    )
-    ggplot(
-      p_data3,
-      aes(x=r1, y=weight, color=which)) +
-      geom_line() +
-      scale_color_manual(values=cb_colors) +
-      facet_grid(rows=vars(r2), cols=vars(r0))
-      labs(x="r1", y="Weight", color="")
   }
 
 }
@@ -2247,10 +2284,11 @@ if (run_misc) {
     theta = log(0.5),
     n_clusters = 8,
     n_time_points = 5,
-    n_ind_per_cluster = 10,
+    n_ind_per_cluster = 1,
     data_type = "normal",
     sigma = 0.01,
-    delay_model = list(type="exp", params=list(d=1.4))
+    delay_model = list(type="exp", params=list(d=1.4)),
+    n_extra_time_points = 0
   )
 
   # Export: PDF 6"x3"

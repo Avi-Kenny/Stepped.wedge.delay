@@ -19,20 +19,34 @@ plot_sw_design <- function(data, title="SW design diagram",
     )),
     state = rep(c("Control","Treatment"),n_clusters)
   )
+  design %<>% mutate(
+    state_times = ifelse(state=="Control", state_times+0.05, state_times),
+    cluster = factor(cluster, labels=sample(c(1:n_clusters)))
+  )
+
+  cb_colors <- c("#999999", "#E69F00", "#56B4E9", "#009E73",
+                 "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
 
   sw_plot <- ggplot(design, aes(x=state_times, y=as.factor(cluster))) +
     geom_col(
       aes(fill = as.factor(state)),
       position = position_stack(reverse=TRUE)
     ) +
-    labs(title=title[1], fill="State", x="Time", y="Cluster")
+    labs(title=title[1], fill="State", x="Time", y="Cluster") +
+    # geom_vline(xintercept = c(0:4), linetype="longdash", color="lightgrey") +
+    scale_fill_manual(values=cb_colors[c(2,3)]) +
+    coord_cartesian(xlim=c(1.1,5))
+
 
   if (compare_to_parallel) {
 
     design_par <- data.frame(
-      cluster = rep(1:n_clusters,each=2),
-      state_times = c(rep(c(0,J),n_clusters/2), rep(c(J,0),n_clusters/2)),
-      state = rep(c("Control","Treatment"),n_clusters)
+      cluster = rep(1:n_clusters),
+      state_times = rep(J+0.05,n_clusters),
+      state = rep(c("Control","Treatment"), each=n_clusters/2)
+    )
+    design_par %<>% mutate(
+      cluster = factor(cluster, labels=sample(c(1:n_clusters)))
     )
 
     par_plot <- ggplot(design_par, aes(x=state_times, y=as.factor(cluster))) +
@@ -40,7 +54,9 @@ plot_sw_design <- function(data, title="SW design diagram",
         aes(fill = as.factor(state)),
         position = position_stack(reverse=TRUE)
       ) +
-      labs(title=title[2], fill="State", x="Time", y="Cluster")
+      labs(title=title[2], fill="State", x="Time", y="Cluster") +
+      scale_fill_manual(values=cb_colors[c(2,3)]) +
+      coord_cartesian(xlim=c(1.1,5))
 
     return(
 

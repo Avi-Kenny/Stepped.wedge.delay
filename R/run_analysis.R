@@ -248,6 +248,72 @@ run_analysis <- function(data, data_type, method, return_extra) {
 
   }
 
+  if (method$method=="ETI+PAVA") {
+
+    J <- L$n_time_points
+
+    # Fit GLMM
+    model <- lmer(
+      y ~ factor(j) + factor(l) + (1|i),
+      data = data$data
+    )
+
+    coeff_names <- names(summary(model)$coefficients[,1])
+    theta_l_hat <- as.numeric(summary(model)$coefficients[,1])
+    sigma_l_hat <- vcov(model)
+    indices <- c(1:length(coeff_names))[str_sub(coeff_names,1,9)=="factor(l)"]
+    indices <- indices[1:(length(indices)-data$params$n_extra_time_points)]
+    coeff_names <- coeff_names[indices]
+    theta_l_hat <- theta_l_hat[indices]
+    sigma_l_hat <- sigma_l_hat[indices,indices]
+    sigma_l_hat <- as.matrix(sigma_l_hat)
+
+    # Sample from MVN and run PAVA on each sample
+    mc_reps <- 100
+    delta_draws <- lapply(1:mc_reps, function(i) {
+      mu <- c(0,theta_l_hat)
+      Sigma <- cbind(rep(0,7),rbind(rep(0,6),sigma_l_hat))
+      delta_mc <- as.numeric(mvrnorm(n=1, mu=mu, Sigma=Sigma))
+      # wts <- c(1e5,rep(1, length(delta_mc)))
+      wts <- c(1e5,1/diag(sigma_l_hat))
+      delta_pava <- pava(delta_mc, w=wts)
+      return(delta_pava)
+    })
+    delta_draws <- t(matrix(unlist(delta_draws), nrow=7))
+
+    # Extract means
+    delta_hat_pava <- c()
+    for (i in 1:6) {
+      delta_hat_pava[i] <- mean(delta_draws[,i+1])
+    }
+
+    # Construct covariance matrix
+    sigma_hat_pava <- matrix(NA, nrow=6, ncol=6)
+    for (i in 1:6) {
+      for (j in 1:6) {
+        sigma_hat_pava[i,j] <- cov(delta_draws[,i+1], delta_draws[,j+1])
+      }
+    }
+
+    res <- res(delta_hat_pava,sigma_hat_pava,method$effect_reached)
+
+    if (is.null(return_extra$rte) && is.null(return_extra$whole_curve)) {
+      return (res)
+    }
+
+    if (!is.null(return_extra$whole_curve)) {
+      return(c(res,list(
+        theta_1_hat = delta_hat_pava[1],
+        theta_2_hat = delta_hat_pava[2],
+        theta_3_hat = delta_hat_pava[3],
+        theta_4_hat = delta_hat_pava[4],
+        theta_5_hat = delta_hat_pava[5],
+        theta_6_hat = delta_hat_pava[6]
+      )))
+    }
+
+  }
+
   if (method$method=="CUBIC-4df") {
 
     # 4 degrees of freedom

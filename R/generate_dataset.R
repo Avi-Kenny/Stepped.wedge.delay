@@ -152,6 +152,7 @@ generate_dataset <- function(mu, tau, theta, n_clusters, n_time_points,
 
   return (list(
     "params" = list(
+      n_clusters = n_clusters,
       n_time_points = n_time_points,
       n_extra_time_points = n_extra_time_points,
       crossover_times = crossover_times

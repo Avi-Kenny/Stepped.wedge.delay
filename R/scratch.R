@@ -1,4 +1,36 @@
 
+# Checking analytic result
+{
+
+  # Should obtain:
+  #  0.495905363
+  # -0.040364043
+  #  0.268827340
+  #  0.003400314
+
+  tau <- 0.25
+  sigma <- 1
+  n <- 20
+  phi <- tau^2 / (tau^2 + (sigma^2/n))
+
+  weight <- function(Q,s,phi) {
+    ( 6*(s-Q-1)*(s+2*phi*Q*s-Q*(1+phi+phi*Q)) ) /
+      ( Q*(Q+1)*(phi*Q^2+2*Q-phi*Q-2) )
+  }
+
+  delta <- function(s) {
+    # rep(0.5,6)[s]
+    # c(0.0,0.0,0.5,0.5,0.5,0.5)[s]
+    # c(0.248,0.375,0.440,0.474,0.491,0.500)[s]
+    c(0.05,0.10,0.30,0.50,0.50,0.50)[s]
+  }
+
+  v4 <- sum(sapply(c(1:6), function(s) {
+    delta(s) * weight(Q=6,s,phi=phi)
+  }))
+
+}
+
 # Code PAVA by hand
 {
 
